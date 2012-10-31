@@ -1,0 +1,76 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="Patrick Barnes">
+
+	<title>Library Example</title>
+	
+	<link href="../../external/bootstrap/css/bootstrap.css" rel="stylesheet">
+	<style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the bottom of the topbar */
+      }
+    </style>
+    <link href="../../external/bootstrap/css/bootstrap-responsive.css" rel="stylesheet">
+
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+	
+	<script type="text/javascript" src="../../js/jquery-1.7.2.min.js" ></script>
+	<script type="text/javascript" src="../../js/underscore-min.js" ></script>
+	<script type="text/javascript" src="../../js/backbone.js" ></script>
+	<script type="text/javascript" src="books/_js"></script>
+	<script type="text/javascript" src="authors/_js"></script>
+	<script type="text/javascript" src="library.js" ></script>
+	
+	<script type="text/javascript" src="../../external/bootstrap/js/bootstrap.js"></script>
+</head>
+<body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="brand" href="#">Library Example</a>
+          <div class="nav-collapse" id="menu">
+            <ul class="nav">
+              <!-- <li><a href="#">Home</a></li> -->
+              <li><a href="#books">Books</a></li>
+              <li><a href="#authors">Authors</a></li>
+              <li><a href="#api">API</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="container tab-content">
+      <!-- Books Page -->
+      <div class="tab-pane" id="books">
+        <h1>All Books</h1>
+        <ul id="books_booklist"></ul> <!-- Will be filled by the corresponding backbone route / list view -->
+      </div>
+      
+      <!--  Authors Page -->
+      <div class="tab-pane" id="authors">
+      </div>
+      
+      <!--  API Page (static) -->
+      <div class="tab-pane" id="api">
+        <p>REST API Examples</p>
+        <ul>
+            <li><a href="books">/books</a></li>
+            <li><a href="books/1">/books/1</a></li>
+            <li><a href="authors">/authors</a></li>
+            <li><a href="authors/Dr Seuss">/authors/Dr Seuss</a></li>
+            <li><a href="authors/Dr Seuss/books">/authors/Dr Seuss/books</a></li>
+        </ul>
+      </div>
+    </div>
+</body>
+</html>
+

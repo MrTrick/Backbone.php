@@ -1,0 +1,391 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="Patrick Barnes">
+
+	<link href="../../external/bootstrap/css/bootstrap.css" rel="stylesheet">
+	<style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the bottom of the topbar */
+      }
+    </style>
+    <link href="../../external/bootstrap/css/bootstrap-responsive.css" rel="stylesheet" />
+    <link href="../../external/backbone-forms/templates/default.css" rel="stylesheet" />
+
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+	
+	<script type="text/javascript" src="../../js/jquery-1.7.2.min.js" ></script>
+	<script type="text/javascript" src="../../js/underscore-min.js" ></script>
+	<script type="text/javascript" src="../../js/backbone.js" ></script>
+	<script type="text/javascript" src="../../external/backbone-forms/backbone-forms.js"></script>
+	<script type="text/javascript" src="../../external/backbone-forms/editors/list.js"></script>
+	<script type="text/javascript" src="../../external/bootstrap/js/bootstrap.js"></script>
+</head>
+<body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="brand" href="#">Test 2</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="container" id="main">
+    	<div style="width:45%;float:left;">
+    		<h1>Asset Allocation Form</h1>
+    		<div id="form-holder" style="border:1px black solid;padding:1em"></div>	
+    		
+    	</div>
+    	<div style="width:45%;float:right;">
+    		<h1>Allocation Data</h1>
+    		<div id="data-holder" style="border:1px black solid;padding:1em"></div>
+    	</div>
+    </div>
+</body>
+
+
+<script type="text/javascript">
+$(function() {
+	
+
+	/** search editor base class
+	
+	* 'url' should be set when instansiating 
+		
+	* 'selectKey' is the key of attribute that contains foriengkey in returned data , like personId, assetSerial# // mandatory
+		'selectKey' should be set when instansiating or in the derived class	
+	* 'selectLabel' is the key of attribute that contains value in returned data , like PersonName, AssetName
+		'selectLabel' should be set when instansiating or in the derived class	
+	* 'searchItem' is searching item text, like Person, asset.
+	*/
+	Backbone.Form.editors.searchEditor = Backbone.Form.editors.Base.extend({
+		
+		    
+		    defaultValue: '',		    
+		    previousValue: '',
+		    
+		    foreignKey: '',
+		    searchItem: '',
+		    selectKey: '',
+			selectLabel: '',
+			
+			
+		    
+		    events: {
+		      'keyup':    'determineChange',
+		      'keypress': function(event) {
+		        var self = this;
+		        setTimeout(function() {
+		          self.determineChange();
+		        }, 0);
+		      },
+		      'select':   function(event) {
+		        this.trigger('select', this);
+		      },
+		      'focus':    function(event) {
+		        this.trigger('focus', this);
+		      },
+		      'blur':     function(event) {
+		        this.trigger('blur', this);
+		      },
+		      
+		      'click input#pe-form-text': function(event)
+		      {
+		    	  //clear previeous data in modal
+		    	  this.$el.find('#pe-modal-searchtext').val('');
+		    	  this.$el.find('#pe-modal').find('#pe-select').html('');
+		    	  
+		    	  //show modal
+		    	  this.$el.find('#pe-modal').modal('show');
+		    	  console.log('modal show sucsessed');
+		      },
+		      
+		      //when any charachter is typed, a request is send to server
+		      'keyup input#pe-modal-searchtext': function(event)
+		      {
+		    	  //get searching query
+		    	  var qstr = this.$el.find('#pe-modal-searchtext').val();
+		    	  var self = this;
+		    	  
+		    	  // send ajax request to php file 
+		    	  $.getJSON( this.schema.url + '?q=' + qstr , function(data)
+		    	    {
+				    	
+		    		  self.$el.find('#pe-modal').find('#pe-select').html('');
+				    	_.each(data, function(val) { //adding select options
+			           	 self.$el.find('#pe-modal').find('#pe-select').append('<option id="'+ val[self.selectKey] + '" name="'+ val[self.selectLabel] +'"">' + 
+			           			self.selectListLabel(val) + ' </option>');
+			            });
+			        });
+		    	  
+		    	  
+		    	  this.render();
+				    
+		      },
+		      
+		      
+		      // modal submit events
+		      'click button#btn-select': 'itemSelectHandler',		      
+		      'dblclick select': 'itemSelectHandler'
+		    },
+		    
+		    initialize: function(options) {
+		    
+		    Backbone.Form.editors.Base.prototype.initialize.call(this, options);
+		      
+		    var schema = this.schema;
+		    
+		    //'url' is mandatory
+		    if (!schema || !schema.url){ throw "Missing required 'schema.url'"; }
+		    
+		   
+		    if (schema.searchItem)
+		    	 {
+		    	  	this.searchItem = schema.searchItem;
+		    	 }		      
+		      
+		    if(schema.selectKey)
+				{
+					this.selectKey = schema.selectKey;
+				}
+				
+			if(schema.selectLabel)
+				{
+					this.selectLabel = schema.selectLabel;
+				}
+				
+				
+		      
+		     //Form Text box
+		    this.$el.html("<input name='name' id='pe-form-text' type='text'>");
+		     
+		     // Search Modal
+		    this.$el.append('<div class="modal hide fade" id="pe-modal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true"><div>');
+		        // modal header
+		    this.$el.find('.modal').append('<div class="modal-header"></div>');
+		    this.$el.find('.modal-header').append('<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>');
+		    this.$el.find('.modal-header').append('<h2>Search ' + this.searchItem + '</h2>');
+		    	// modal body
+		    this.$el.find('.modal').append('<div class="modal-body"></div>');
+		    this.$el.find('.modal-body').append('<form id="pe-modal-form" class="form-inline" ></form>');
+		    this.$el.find('#pe-modal-form').append('<div class="control-group" ></div>');
+		    this.$el.find('.control-group').append('<div class="controls" ></div>');
+		    this.$el.find('.controls').append('<div id="pe-modal-div1" class="input-prepend" ></div>');
+		    //this.$el.find('#pe-modal-div1').append('<span class="add-on"><i class="icon-user"></i></span>');
+		    this.$el.find('#pe-modal-div1').append('<p>Search:</p>');
+		    this.$el.find('#pe-modal-div1').append('<input  type="text" id="pe-modal-searchtext" placeholder="type ' + this.searchItem + ' here...">');
+		    this.$el.find('.modal-body').append('<select multiple="multiple" id="pe-select"></select>');
+		    
+		    	// modal footer
+		    this.$el.find('.modal').append('<div class="modal-footer"></div>');
+		    this.$el.find('.modal-footer').append('<button id="btn-select" class="btn btn-primary" type="button">Select ' + this.searchItem + '</button>');
+		    
+		    
+		    
+		    },
+
+		    /**
+		     * Adds the editor to the DOM
+		     */
+		    render: function() {
+		      this.setValue(this.value);
+
+		      return this;
+		    },
+		    
+		    determineChange: function(event) {
+		      var currentValue = this.$el.val();
+		      var changed = (currentValue != this.previousValue);
+		      
+		      if (changed) {
+		        this.previousValue = currentValue;
+		        
+		        this.trigger('change', this);
+		      }
+		    },
+
+		    /**
+		     * Returns the current editor value
+		     * @return {String}
+		     */
+		    getValue: function() {
+		      return this.foreignKey;
+		    },
+		    
+		    /**
+		     * Sets the value of the form element
+		     * @param {String}
+		     */
+		    setValue: function(value) { 
+		      this.$el.val(value)
+		      this.$el.find('#pe-form-text').val(value);
+		    },
+		    
+		    focus: function() {
+		      if (this.hasFocus) return;
+
+		      this.$el.focus();
+		    },
+		    
+		    blur: function() {
+		      if (!this.hasFocus) return;
+
+		      this.$el.blur();
+		    },
+		    
+		    select: function() {
+		      this.$el.select();
+		    },
+		    
+		    //modal select handler
+		    itemSelectHandler: function(event)
+		    {
+		    	  // selected item Text to be shown on form
+		    	  this.value = this.$el.find('#pe-select option:selected').attr('name');
+		    	  this.setValue(this.value);
+		    	 
+		    	  // selected item foreignkey is set
+		    	  this.foreignKey = this.$el.find('#pe-select option:selected').attr('id');
+		    	  
+		    	  // hide modal
+		    	  this.$el.find('#pe-modal').modal('hide');
+		    	  console.log('modal closed');
+		    },
+		    
+		    // generate the label in the select list
+		    getSelectListLabel: function(dataArray) {return dataArray[this.selectLabel]; }
+		    
+
+	});
+
+	
+	
+	Backbone.Form.editors.PersonEditor = Backbone.Form.editors.searchEditor.extend({
+		
+		
+		initialize: function(options){
+				
+		Backbone.Form.editors.searchEditor.prototype.initialize.call(this, options);
+			
+		},
+	
+		//overrided
+		selectListLabel: function(dataArray){ return 'UTS Person: ' + dataArray[this.selectLabel] + ',age: ' + dataArray['age'];}
+	});
+	
+	
+	Backbone.Form.editors.AssetEditor = Backbone.Form.editors.searchEditor.extend({
+		
+		
+		initialize: function(options){
+		
+			Backbone.Form.editors.searchEditor.prototype.initialize.call(this, options);
+			
+		},
+		
+		//overrided
+		selectListLabel: function(dataArray){ return dataArray[this.selectLabel] + ', type: ' + dataArray['AssetName'];}
+		
+	});
+	
+	//----------------------------------------------------
+	//Here is a Backbone.Model
+	//It defines the data, and the instance of data
+    var User = Backbone.Model.extend({
+        schema: {
+            allocationType:      { type: 'Select', options: ['', 'reserved', 'leased'] },
+            name:       { type:'PersonEditor', url: 'test2/persondb.php' , searchItem: 'UTS Person',selectKey :'id',selectLabel: 'name' },
+            asset:       { type:'AssetEditor', url: 'test2/assetdb.php' , searchItem: 'UTS Asset',selectKey :'serial',selectLabel: 'make' },
+            allocationStartDate:   'Date',
+          	allocationExpireDate:   'Date',
+            notes:      { type: 'List', listType: 'Text' }
+        }
+    });
+    
+    var user = new User({
+    	allocationType: 'reserved',
+        name: 'Sterling Archer',
+        asset: 'Canon EOS1 Mark II',
+        allocationStartDate: new Date(2012, 6, 12),
+        allocationExpireDate: new Date(2013, 6, 12),
+        notes: [
+            'New Lens has no warranty',
+            'needs for his final project',
+            'broken body'
+        ]
+    });
+
+	//----------------------------------------------------
+	//Here is a Backbone.View
+	//It renders the User object into the screen, and will trigger/re-render when the model changes.
+	
+    var UserView = Backbone.View.extend({
+		initialize: function(options) {
+			this.model.on('change',this.render,this);
+		},
+		render: function() {
+			var list = $('<dl>');
+			_.each(this.model.toJSON(), function(v,k) { 
+				list.append(this.make('dt',{},k));
+				list.append(this.make('dd',{},(v instanceof String) ? v : JSON.stringify(v)));
+			}, this);
+			this.$el.html(list);
+			return this;
+		}
+	});
+
+	//----------------------------------------------------
+	//Here is a Backbone.Form
+	//It renders the form according to the schema, and holds the form processing funcs for submit/cancel. 
+	var user_view = new UserView({el: '#data-holder', model: user});
+	user_view.render();
+	var UserForm = Backbone.Form.extend({
+		render: function() {
+			Backbone.Form.prototype.render.call(this);
+			this.$el.append('<input id="submit" type="submit" class="btn btn-primary"  value="Submit"/> ');
+			this.$el.append('<input id="cancel" type="submit" class="btn" value="Cancel"/>');
+		},
+		events: {
+			'click #submit': 'submitHandler',
+			'click #cancel': 'cancelHandler'
+		},
+		submitHandler: function(e) { 
+			//Try and save the form data back to the model
+			var errors = this.commit();
+			if (errors) {
+				this.alert('error', 'Errors: '+JSON.stringify(errors));
+			} else {
+				this.alert('success', 'Saved, see model has updated.');
+			}
+			e.preventDefault();
+		},
+		cancelHandler: function(e) {
+			this.alert('info', 'Cancelled');
+			e.preventDefault();
+		},
+		//Helper to do the temporary alert messages
+		alert: function(type, message) {
+			var alert = $('<div class="alert alert-'+type+'">'+message+'</div>');
+			alert.slideDown(150).delay(1000).slideUp(500, function() {$(this).remove();} ); 
+			$('#main').prepend(alert);
+		}
+	});
+    
+    var user_form = new UserForm({
+        model: user
+    });
+    user_form.render();
+    $('#form-holder').append(user_form.el);
+    
+});
+</script>
+
+
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="Patrick Barnes">
+
+    <link href="../../external/bootstrap/css/bootstrap.css" rel="stylesheet">
+    <style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the bottom of the topbar */
+      	padding-bottom: 40px;      	
+      }
+    </style>
+    <link href="../../external/bootstrap/css/bootstrap-responsive.css" rel="stylesheet" />
+    <!-- <link href="../../external/backbone-forms/templates/default.css" rel="stylesheet" /> -->
+
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    
+
+    <title>Authentication Test</title>
+    <script type="text/javascript" src="../../js/jquery-1.7.2.min.js" ></script>
+    <script type="text/javascript" src="../../js/underscore-min.js" ></script>
+    <script type="text/javascript" src="../../js/backbone.js" ></script>
+    <script type="text/javascript" src="../../js/hmac-sha256.js"></script>
+    <script type="text/javascript" src="people/_js"></script>
+    
+    <script type="text/javascript" src="../../external/backbone-forms/backbone-forms.js"></script>
+    <script type="text/javascript" src="../../external/backbone-forms/editors/list.js"></script>
+    <script type="text/javascript" src="../../external/bootstrap/js/bootstrap.js"></script>
+        
+    <script type="text/javascript" src="index.js" ></script>
+</head>
+<body>
+    <div class="navbar navbar-inverse navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="brand" href="#">Authentication Test</a>
+          
+          <div class="pull-right" id="login_form_container">
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="container" id="main">
+      <p>Usernames are: <code>test1</code>,<code>test2</code>,<code>test3</code>,<code>test4</code>. Password is <code>test</code>.</p>
+      <p><i>TODO: Add dialogs to load/display the 'public' and 'private' pages.</p>      
+      <div class="row">
+        <div class="span8" id="people_container">
+        </div>
+        <div class="span4" id="identity_container">
+        </div>
+      </div>
+    </div>
+    
+
+    <!-- <div id="my_modal" class="modal hide fade">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+        <h3>Query</h3>
+      </div>
+    </div>
+-->
+      
+</body>
+</html>

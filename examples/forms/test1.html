@@ -1,0 +1,151 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="Patrick Barnes">
+
+	<link href="../../external/bootstrap/css/bootstrap.css" rel="stylesheet">
+	<style>
+      body {
+        padding-top: 60px; /* 60px to make the container go all the way to the bottom of the topbar */
+      }
+    </style>
+    <link href="../../external/bootstrap/css/bootstrap-responsive.css" rel="stylesheet" />
+    <link href="../../external/backbone-forms/templates/default.css" rel="stylesheet" />
+
+    <!-- HTML5 shim, for IE6-8 support of HTML5 elements -->
+    <!--[if lt IE 9]>
+      <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+	
+	<script type="text/javascript" src="../../js/jquery-1.7.2.min.js" ></script>
+	<script type="text/javascript" src="../../js/underscore-min.js" ></script>
+	<script type="text/javascript" src="../../js/backbone.js" ></script>
+	<script type="text/javascript" src="../../external/backbone-forms/backbone-forms.js"></script>
+	<script type="text/javascript" src="../../external/backbone-forms/editors/list.js"></script>
+	<script type="text/javascript" src="../../external/bootstrap/js/bootstrap.js"></script>
+</head>
+<body>
+
+    <div class="navbar navbar-fixed-top">
+      <div class="navbar-inner">
+        <div class="container">
+          <a class="brand" href="#">Test 1</a>
+        </div>
+      </div>
+    </div>
+    
+    <div class="container" id="main">
+    	<div style="width:45%;float:left;">
+    		<h1>Person Form</h1>
+    		<div id="form-holder" style="border:1px black solid;padding:1em"></div>	
+    	</div>
+    	<div style="width:45%;float:right;">
+    		<h1>Person Data</h1>
+    		<div id="data-holder" style="border:1px black solid;padding:1em"></div>
+    	</div>
+    </div>
+</body>
+
+
+<script type="text/javascript">
+$(function() {
+	//'Person' format - can make custom editors
+	Backbone.Form.editors.Person = Backbone.Form.editors.Text.extend({});
+
+	//----------------------------------------------------
+	//Here is a Backbone.Model
+	//It defines the data, and the instance of data
+    var User = Backbone.Model.extend({
+        schema: {
+            title:      { type: 'Select', options: ['', 'Mr', 'Mrs', 'Ms'] },
+            name:       'Person',
+            email:      { validators: ['required', 'email'] },
+            birthday:   'Date',
+//            password:   'Password', // (Commented to avoid 'do you want to save your password' prompts) 
+            notes:      { type: 'List', listType: 'Text' }
+        }
+    });
+    
+    var user = new User({
+        title: 'Mr',
+        name: 'Sterling Archer',
+        email: 'sterling@isis.com',
+        birthday: new Date(1978, 6, 12),
+        password: 'dangerzone',
+        notes: [
+            'Buy new turtleneck',
+            'Call Woodhouse',
+            'Buy booze'
+        ]
+    });
+
+	//----------------------------------------------------
+	//Here is a Backbone.View
+	//It renders the User object into the screen, and will trigger/re-render when the model changes.
+	
+    var UserView = Backbone.View.extend({
+		initialize: function(options) {
+			this.model.on('change',this.render,this);
+		},
+		render: function() {
+			var list = $('<dl>');
+			_.each(this.model.toJSON(), function(v,k) { 
+				list.append(this.make('dt',{},k));
+				list.append(this.make('dd',{},(v instanceof String) ? v : JSON.stringify(v)));
+			}, this);
+			this.$el.html(list);
+			return this;
+		}
+	});
+    var user_view = new UserView({el: '#data-holder', model: user});
+    user_view.render();
+
+	//----------------------------------------------------
+	//Here is a Backbone.Form
+	//It renders the form according to the schema, and holds the form processing funcs for submit/cancel. 
+	var UserForm = Backbone.Form.extend({
+		render: function() {
+			Backbone.Form.prototype.render.call(this);
+			this.$el.append('<input id="submit" type="submit" value="Submit"/>');
+			this.$el.append('<input id="cancel" type="submit" value="Cancel"/>');
+		},
+		events: {
+			'click #submit': 'submitHandler',
+			'click #cancel': 'cancelHandler'
+		},
+		submitHandler: function(e) { 
+			//Try and save the form data back to the model
+			var errors = this.commit();
+			if (errors) {
+				this.alert('error', 'Errors: '+JSON.stringify(errors));
+			} else {
+				this.alert('success', 'Saved, see model has updated.');
+			}
+			e.preventDefault();
+		},
+		cancelHandler: function(e) {
+			this.alert('info', 'Cancelled');
+			e.preventDefault();
+		},
+		//Helper to do the temporary alert messages
+		alert: function(type, message) {
+			var alert = $('<div class="alert alert-'+type+'">'+message+'</div>');
+			alert.slideDown(150).delay(1000).slideUp(500, function() {$(this).remove();} ); 
+			$('#main').prepend(alert);
+		}
+	});
+    
+    var user_form = new UserForm({
+        model: user
+    });
+    user_form.render();
+    $('#form-holder').append(user_form.el);
+    
+});
+</script>
+
+
+</html>
