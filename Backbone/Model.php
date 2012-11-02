@@ -700,7 +700,7 @@ class Backbone_Model extends Backbone_Events
         $options['success'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_success, &$was_success) {
             //Set the attributes
             $serverAttrs = $model->parse($response);
-            if (!$model->set($serverAttrs, $options)) return; //if can't set, calls error instead 
+            if (!$model->set($serverAttrs, array_merge($options, array('on_sync'=>true)))) return; //if can't set, calls error            
             
             //Signal that the operation was successful
             if ($on_success) call_user_func($on_success, $model, $response, $options);
@@ -786,7 +786,7 @@ class Backbone_Model extends Backbone_Events
             //Saved successfully, set any new attributes
             $serverAttrs = $model->parse($response);
             if ($waiting and $attrs) $serverAttrs = array_merge($attrs, $serverAttrs);
-            if (!$model->set($serverAttrs, $options)) return; //if can't set, calls error 
+            if (!$model->set($serverAttrs, array_merge($options, array('on_sync'=>true)))) return; //if can't set, calls error 
             
             //Signal that the operation was successful
             if ($on_success) call_user_func($on_success, $model, $response, $options);

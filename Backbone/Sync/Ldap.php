@@ -37,6 +37,11 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     \*************************************************************************/
     
     /**
+     * What fields are returned by the LDAP query?
+     */
+    protected static $search_attributes = array();
+    
+    /**
      * What kinds of exceptions are sync errors?
      * @see Backbone_Sync_Abstract::caught 
      * @var array
@@ -100,8 +105,8 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     public function readModel(Backbone_Model $model, array $options = array()) {
         $dn = $this->toDn($model, $options);
         $client = $this->client();
-                
-        $entry = $client->getEntry($dn);
+
+        $entry = $client->getEntry($dn, static::$search_attributes);
         if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be read, not found");
         
         return $this->convertEntryToAttributes($entry, $options);
@@ -121,7 +126,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $filter = $this->getSearchFilter($collection, $options);
         $client = $this->client();
 
-        $entries = $client->search($filter);
+        $entries = $client->search($filter, null, Zend_Ldap::SEARCH_SCOPE_SUB, static::$search_attributes);
         $data = array();
         foreach($entries as $entry) {
             //Convert the LDAP entry to its attributes, including the ID
@@ -151,7 +156,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $client->add($dn, $entry);
         
         //Read it back
-        $entry = $client->getEntry($dn);
+        $entry = $client->getEntry($dn, static::$search_attributes);
         if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be found after creating");
         
         return $this->convertEntryToAttributes($entry, $options);
@@ -175,7 +180,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $client->exists($dn) ? $client->update($dn, $entry) : $client->add($dn, $entry);
         
         //Read it back
-        $entry = $client->getEntry($dn);
+        $entry = $client->getEntry($dn, static::$search_attributes);
         if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be found after updating");
         
         return $this->convertEntryToAttributes($entry, $options);
