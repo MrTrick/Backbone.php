@@ -116,6 +116,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
      * Given a Backbone_Collection; fetch its elements from the backend.
      * Options:
      *  'params' => A map of 'key' => 'value' where filters 
+     *  'filter_mode' => '&' or '|' - how the filter should combine the params
      * @see Backbone_Sync_Abstract::readCollection
      * @param Backbone_Model_Collection $collection  
      * @param array $options
@@ -125,6 +126,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     public function readCollection(Backbone_Collection $collection, array $options = array()) {
         $filter = $this->getSearchFilter($collection, $options);
         $client = $this->client();
+        error_log(print_r($options['params'], true));
 
         $entries = $client->search($filter, null, Zend_Ldap::SEARCH_SCOPE_SUB, static::$search_attributes);
         $data = array();
@@ -235,20 +237,23 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     }
     
     /**
-     * Given a collection to read, generate the table selector
-     * (to figure out which rows to read)
+     * Given a collection to read, generate the ldap selector
+     * (to figure out which entries to search for)
      * The default implementation will select all rows by default, or allow a set of simple filters to be passed in $options['params']
+     * If params are passed in, the way they are combined can be altered from the default (&(k1=p1)(k2=p3)...) to (|(k1=p1)(k2=p2)...)
+     * by passing a filter mode in $options['filter_mode']. 
      * 
      * Override this function to permit more complex selectors
      * 
      * @param Backbone_Collection $collection
      * @param array $options
      * @throws InvalidArgumentException
+     * @returns Zend_Ldap_Filter
      */
     public function getSearchFilter(Backbone_Collection $collection, array $options) {
         //If no parameters given, select all objects
         if (empty($options['params'])) { 
-            return '(objectClass=*)';
+            return Zend_Ldap_Filter::any('objectClass');
         
         //Otherwise, filter on the parameters given.
         } else {
@@ -258,10 +263,15 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
             foreach($options['params'] as $attr=>$val) {
                 if ($val instanceof Zend_Ldap_Filter_Abstract) 
                     $filters[] = $val;
-                else
+                elseif (is_scalar($val))
                     $filters[] = Zend_Ldap_Filter::equals($attr, $val);
+                elseif (is_array($val))
+                    $filters[] = new Zend_Ldap_Filter_Or(array_map(function($el) use ($attr) { return Zend_Ldap_Filter::equals($attr, $el); }, $val));
             }
-            return new Zend_Ldap_Filter_And($filters);
+            if (!empty($options['filter_mode']) && $options['filter_mode'] == Zend_Ldap_Filter_Logical::TYPE_OR)
+                return new Zend_Ldap_Filter_Or($filters);
+            else
+                return new Zend_Ldap_Filter_And($filters);
         }
     }
         

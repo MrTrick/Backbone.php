@@ -183,12 +183,11 @@ class Backbone_Model extends Backbone_Events
      * @param Backbone_Sync_Interface|callable $gateway
      * @return Backbone_Sync_Interface The effective sync fuction
      */
-    public function sync($sync=null) { 
+    public function sync($sync=null) {
         if (func_num_args()) {
             if ($sync and !(is_callable($sync) || is_a($sync, 'Backbone_Sync_Interface'))) throw new InvalidArgumentException('Cannot set $sync - invalid');            
-            $this->sync = $sync;  
+            $this->sync = $sync;
         }
-        
         return $this->sync ? $this->sync : ($this->collection ? $this->collection->sync() : Backbone::getDefaultSync(get_class($this)));
     }
     
@@ -501,9 +500,18 @@ class Backbone_Model extends Backbone_Events
      * changes.
      * 
      */
-    public function isValid() 
+    public function isValid(array $options = array()) 
     {
-        return !$this->validate($this->attributes);
+        $errors = $this->validate($this->attributes, $options);
+        
+        //If no errors, valid!
+        if (!$errors) return true;
+        
+        //If an error callback has been registered, pass to it the errors 
+        if (!empty($options['error']))
+            call_user_func($options['error'], $this, $errors, $options);
+            
+        return false;
     }
     
     /**
@@ -882,14 +890,25 @@ class Backbone_Model extends Backbone_Events
     protected static $exported_classname = null;
         
     /**
-     * Javascript attributes that belong in the class definition.
+     * Javascript methods that belong in the object definition.
+     * 
+     * For example; if a function 'foo' is exported, then
+     * in javascript; "var model = new My.Model(); model.foo();" 
      * 
      * @var array Map of 'name' => 'function(args) { stuff }'
      */
     protected static $exported_functions = array();
     
     /**
-     * Static attributes that need to be exported to the class definition
+     * Javascript static methods that belong in the class definition.
+     * 
+     * For exmaple; if a function 'foo' is exported, then
+     * in javascript; My.Model.foo()
+     */
+    protected static $exported_static_functions = array();
+    
+    /**
+     * Static class attributes that need to be exported to the class definition
      * @var array List of attribute names
      */
     protected static $exported_fields = array('idAttribute', 'defaults', 'urlRoot');
@@ -946,15 +965,20 @@ class Backbone_Model extends Backbone_Events
         
         $class = $_class::getExportedClassName();
         $parent = $_parent::getExportedClassName();
-
-        $members = array();
         
-        $reflector = new ReflectionClass($class);
+        $members = array();
+        $static_members = array();
+        
+        $reflector = new ReflectionClass($_class);
         $class_values = $reflector->getDefaultProperties();
         
         foreach(static::$exported_fields as $field) $members[] = "$field: ".(isset($class_values[$field])? json_encode($class_values[$field]) : 'null');
         foreach(static::$exported_functions as $name=>$func) $members[] = "$name: $func";
-
-        return "var $class = $parent.extend({\n\t".implode(",\n\t",$members)."\n})";
+        foreach(static::$exported_static_functions as $name=>$func) $static_members[] = "$class.$name = $func;";
+        
+        // If class isn't being defined as part of a module, declare it with var.
+        if (strpos($class, '.') === false) $class = "var $class";
+        
+        return "$class = $parent.extend({\n\t".implode(",\n\t",$members)."\n});\n".implode("\n", $static_members);
     }
 }

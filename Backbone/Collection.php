@@ -965,14 +965,17 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
         $class = $_class::getExportedClassName();
         $parent = $_parent::getExportedClassName();
         
-        $reflector = new ReflectionClass($class);
+        $reflector = new ReflectionClass($_class);
         $class_values = $reflector->getDefaultProperties();
         
         $members = array();
-        $members[] = "model: ".$class_values['model'];
+        $members[] = "model: ".$class_values['model']::getExportedClassName();
         foreach(static::$exported_fields as $field) $members[] = "$field: ".(isset($class_values[$field])? json_encode($class_values[$field]) : 'null');
         foreach(static::$exported_functions as $name=>$func) $members[] = "$name: $func";
+        
+        // If class isn't being defined as part of a module, declare it with var.
+        if (strpos($class, '.') === false) $class = "var $class";
 
-        return "var $class = $parent.extend({\n\t".implode(",\n\t",$members)."\n})";
+        return "$class = $parent.extend({\n\t".implode(",\n\t",$members)."\n})";
     }
 }

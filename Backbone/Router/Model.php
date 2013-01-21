@@ -86,6 +86,7 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
         
         //Add a special route to match '_js' - after construction, so not overriden by other routes 
         $this->route('_js', 'exportClasses');
+        $this->route('_.js', 'exportClassesAsModule');
     }
 
     /*************************************************************************\
@@ -126,7 +127,8 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
         $raw = $request->has('data') ? $request->get('data') : $this->request()->getRawBody();
         if (!$raw) throw new InvalidArgumentException("No data received", 400);  
         $data = json_decode($raw, true);
-        if (!$data) throw new InvalidArgumentException("Incorrect data format sent - should be JSON", 400);
+        if ($data === null and json_last_error() != JSON_ERROR_NONE) 
+            throw new InvalidArgumentException("Incorrect data format sent - should be JSON", 400);
 
         return $data;
     }
@@ -152,7 +154,7 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @see Backbone_Router_Rest::index()
      */
     public function index(array $options=array()) {
-        $options = $this->getOptions($options); 
+        $options = $this->getOptions($options);
         $this->collection()->fetch($options);
         
         $this->response()
@@ -180,11 +182,9 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @param string id
      */
     public function read($id, array $options=array()) {
-        $model = $this->buildModel();
-        if (!$model->id($id)) throw new InvalidArgumentException("Invalid id", 404);
-        $options = $this->getOptions($options); 
-        $model->fetch($options);
-        
+        $options = $this->getOptions($options);
+        $modelClass = $this->collection()->model();
+        $model = $modelClass::factory($id, $options);
         $this->response()
             ->setHeader('Content-Type', 'application/json')
             ->setBody( $model->export($options) );
@@ -240,5 +240,51 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
         $this->response()
             ->setHeader('Content-Type', 'text/javascript')
             ->setBody( implode("\n\n", $exports) );
+    } 
+
+    /**
+     * Export the model and collection javascript definition
+     * (Needs the client to have loaded Backbone.js already)
+     * Definitions are wrapped in a Universal Module Definition (UMD).
+     * If requirejs is loaded, it will use requirejs's define(...) syntax;
+     * otherwise, it will register the module in the global namespace.
+     * Options:
+     *      exportModuleName: The name of the module to export into.
+     *      exportModuleDeps: An array of requirejs module dependencies
+     *                  (such as 'backbone', 'underscore', or 'jquery')
+     */
+    public function exportClassesAsModule(array $options=array()) {
+        $moduleName = $options['exportModuleName'];
+        $moduleDeps = json_encode(is_array($options['exportModuleDeps']) ? $options['exportModuleDeps'] : array($options['exportModuleDeps']));
+        $collection = $this->collection();
+        $modelClass = $collection->model();
+        
+        $exports = array(
+            "//Exported definitions for ".get_class($this)
+        );
+        if ($modelClass != 'Backbone_Model')
+            $exports[] = $modelClass::exportClass();
+        if (get_class($collection) != 'Backbone_Collection') 
+            $exports[] = $collection->exportClass();
+        
+        $definitions = implode("\n\n", $exports);
+        
+        $out = <<<EOF
+(function(root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define($moduleDeps, factory);
+    }
+    else {
+        root.$moduleName = factory(root.$moduleName);
+    }
+}(this, function($moduleName) {
+$definitions
+
+return $moduleName;
+}));
+EOF;
+        $this->response()
+            ->setHeader('Content-Type', 'text/javascript')
+            ->setBody( $out );
     }    
 }

@@ -125,7 +125,7 @@ class Backbone_Sync_CouchDB extends Backbone_Sync_Abstract {
     public function readModel(Backbone_Model $model, array $options = array()) {
         if ($model->idAttribute() != '_id') throw new InvalidArgumentException("Model is expected to have '_id' as its idAttribute.");
 
-        $result = $this->client()->asArray()->getDoc($model->id());
+        $result = $this->client()->getDoc($model->id());
         return $this->convertDocumentToAttributes($result, $options);
     }
     
@@ -146,7 +146,7 @@ class Backbone_Sync_CouchDB extends Backbone_Sync_Abstract {
     public function readCollection(Backbone_Collection $collection, array $options = array()) {
         list($view, $params) = $this->getCollectionSelector($collection, $options);
         $client = $this->client();
-        $client->setQueryParameters($params)->asArray();
+        $client->setQueryParameters($params);
         
         $result = $view  ?  $client->getView($this->design_doc, $view)  :  $client->getAllDocs();
              
@@ -223,15 +223,24 @@ class Backbone_Sync_CouchDB extends Backbone_Sync_Abstract {
      * and the 'params' option as the query parameters.
      *  
      * Override this function to permit more complex behaviour
-     * TODO: Is url the most appropriate view naming mechanism?
+     * TODO: Is the url parameter the most appropriate view naming mechanism?
      * 
      * @param Backbone_Collection $collection
      * @param array $options
      * @throws InvalidArgumentException
      */
     public function getCollectionSelector(Backbone_Collection $collection, array $options) {
-        $view = trim($collection->url(), '/');
         $params = !empty($options['params']) ? $options['params'] : array();
+        
+        //Is there some extra url info beyond the collection's own url?
+        //Assume that the first part is the view name
+        if (!empty($params['url'])) {
+            $chunks = explode('/', trim($params['url'],'/'));
+            $view = array_shift($chunks);
+        } else {
+            $view = null;
+        }
+        unset($params['url']);
         
         //Some parameters must be present
         $params['include_docs'] = true;
@@ -260,7 +269,7 @@ class Backbone_Sync_CouchDB extends Backbone_Sync_Abstract {
      * @param array $options
      * @return array
      */
-    public function convertDocumentToAttributes(object $document, array $options) {
+    public function convertDocumentToAttributes(stdClass $document, array $options) {
         return (array)$document;
     }
 }
