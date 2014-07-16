@@ -1,4 +1,5 @@
 {
   "name": "mrtrick/backbone.php",
-  "version": "v0.1-alpha"
+  "description": "A php implementation of Backbone.php, with expressjs-inspired features for writing servers",
+  "license": "MIT" 
 }
