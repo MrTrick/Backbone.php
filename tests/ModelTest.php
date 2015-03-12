@@ -229,6 +229,20 @@ class Test_Model_TestCase extends PHPUnit_Framework_TestCase {
     }
     
     /**
+     * Model: pick
+     */
+    public function testModelPick() {
+        $this->assertEquals(array(), $this->doc->pick());
+        $this->assertEquals(array('title'=>'The Tempest'), $this->doc->pick('title'));
+        $this->assertEquals(array('title'=>'The Tempest'), $this->doc->pick(array('title')));
+        $this->assertEquals(array('title'=>'The Tempest', 'author'=>'Bill Shakespeare'), $this->doc->pick('title', 'author'));
+        $this->assertEquals(array('title'=>'The Tempest', 'author'=>'Bill Shakespeare'), $this->doc->pick(array('title', 'author')));
+        $this->assertEquals(array('title'=>'The Tempest', 'author'=>'Bill Shakespeare'), $this->doc->pick(array('title'), 'author'));
+        $this->assertEquals(array('author'=>'Bill Shakespeare', 'title'=>'The Tempest'), $this->doc->pick('author', 'title'));
+        $this->assertEquals(array('author'=>'Bill Shakespeare', 'title'=>'The Tempest'), $this->doc->pick(array(), 'author', 'title'));
+    }
+    
+    /**
      * Model: escape
      */
     public function testModelEscape() {
@@ -1151,13 +1165,16 @@ class Test_Model_TestCase extends PHPUnit_Framework_TestCase {
         $test = $this;
         $model = new Backbone_Model();
         $count = 0;
+        $original_options = null;
         $options = array(
             'foo' => 'bar',
-        	'success'=>function($model,$response,$options) use ($test, &$count) { 
+        	'success'=>function($model,$response,$options) use ($test, &$count, &$original_options) { 
                 $count++;
                 $test->assertEquals('bar', $options['foo']);
+                $test->assertEquals($options, $original_options);
             }
         );
+        $original_options = $options;
         $model->sync(function($method, $model, $options) { call_user_func($options['success']); });
         $model->save(array('id', 1), $options);
         $model->fetch($options);
@@ -1271,17 +1288,17 @@ class Test_Model_TestCase extends PHPUnit_Framework_TestCase {
      */
     public function testBMExportedObject() {
         $model = new Backbone_Model(array('x'=>true));
-        $this->assertEquals('{"x":true}', $model->export());
+        $this->assertEquals('{"x":true}', $model->exportJSON());
         
         $class = Test_Model::buildClass(array());
         $model = new $class(array('a'=>1, 'b'=>"two", 'c'=>array(3,4,5), 'd'=>array('six'=>6,'seven'=>'seven')));
         $this->assertEquals(
         	'{"a":1,"b":"two","c":[3,4,5],"d":{"six":6,"seven":"seven"}}', 
-            $model->export()
+            $model->exportJSON()
         );
         
         $model = new Backbone_Model();
-        $this->assertEquals('{}', $model->export());
+        $this->assertEquals('{}', $model->exportJSON());
     }
     
     /**
@@ -1339,6 +1356,20 @@ class Test_Model_TestCase extends PHPUnit_Framework_TestCase {
     }
     
     /**
+     * Backbone_Model: Exported class contains constants
+     */
+    public function testBMExportClassConstants() {
+        $class = Test_Model::buildClass(array());
+        $definition = $class::exportClass();
+        $this->assertContains($class.'.TEST_CONSTANT = "TEST";', $definition, "Constants are automatically exported");
+        
+        $class = Test_Model::buildClass(array('exported_static_functions'=>array('TEST_CONSTANT' => 'function() { alert("hi!"); }')));
+        $definition = $class::exportClass();
+        $this->assertNotContains($class.'.TEST_CONSTANT = "TEST";', $definition, "Constants are not exported if a static function has the same name.");
+        $this->assertContains($class.'.TEST_CONSTANT = function() { alert("hi!"); }', $definition, "Static function is exported.");
+    }
+    
+    /**
      * Backbone_Model: Clone copies urlRoot, sync - not collection or triggers
      */
     public function testBMClone() {
@@ -1368,6 +1399,97 @@ class Test_Model_TestCase extends PHPUnit_Framework_TestCase {
         $col = new Backbone_Model(array(), array('on'=>array('custom'=>function() use (&$called) { $called = true; })));
         $col->trigger('custom');
         $this->assertTrue($called);
+    }
+    
+    /**
+     * Backbone_Model: Fetch and Save fire fetch/save events as well as sync
+     */
+    public function testBMEventOnFetchSave() {
+        $synccount = 0;
+        $fetchcount = 0;
+        $savecount = 0;
+        $doc = $this->doc;
+        $doc->on('sync', function() use (&$synccount) { $synccount++; });
+        $doc->on('fetch', function() use (&$fetchcount) { $fetchcount++; });
+        $doc->on('save', function() use (&$savecount) { $savecount++; });
+        
+        $doc->fetch();
+        $this->assertEquals(1, $synccount);
+        $this->assertEquals(1, $fetchcount);
+        $this->assertEquals(0, $savecount);
+        
+        $doc->save();
+        $this->assertEquals(2, $synccount);
+        $this->assertEquals(1, $fetchcount);
+        $this->assertEquals(1, $savecount);
+    }
+    
+    /**
+     * Backbone_Model: url can be set and cleared
+     */
+    public function testBMUrl() {
+        $doc = $this->doc;
+        $this->doc->collection()->url('/collection');        
+        
+        $doc->url("foo/bar");
+        $this->assertEquals('foo/bar', $doc->url(), 'When set, the model url takes precedence');
+        
+        $doc->url(null);
+        $this->assertEquals($doc->url(), '/collection/1-the-tempest', 'When cleared, falls back to url root');
+    }
+    
+    /**
+     * Backbone_Model: url or urlRoot can be set at construction time 
+     */
+    public function testBMUrlConstructor() {
+        $doc = new Backbone_Model(array('id'=>'1234'), array('urlRoot'=>'something'));
+        $this->assertEquals('something', $doc->urlRoot(), 'Set urlRoot on construction');
+        //var_dump($doc); die;
+        
+        $this->assertEquals('something/1234', $doc->url(), 'Set urlRoot on construction');
+
+        $doc = new Backbone_Model(array(), array('url'=>'foo/bar/boing'));
+        $this->assertEquals('foo/bar/boing', $doc->url(), 'Set url on construction');
+        
+        $doc = new Backbone_Model(array(), array('url'=>'foo/bar/boing', 'urlRoot'=>'something'));
+        $this->assertEquals('foo/bar/boing', $doc->url(), 'url overrides urlRoot if both are defined');
+    }
+    
+    /**
+     * Backbone_Model: #425 - Falls back to the model default sync if the collection sync does not resolve 
+     */
+    public function testBMModelSyncPriority() {
+        //Create a set of model classes, and sync functions, and register them with Backbone
+        $A_SYNC = function() { };
+        $B_SYNC = function() { };
+        $ModelA = Backbone::uniqueId('Model');
+        $ModelB = Backbone::uniqueId('Model');
+        eval('class '.$ModelA.' extends Backbone_Model {}');
+        eval('class '.$ModelB.' extends Backbone_Model {}');
+        Backbone::setDefaultSync(array(
+            $ModelA => $A_SYNC,
+            $ModelB => $B_SYNC,        
+        ));
+        
+        $this->assertNull(Backbone::getDefaultSync("Backbone_Model"), "The default model does not have a default sync function");
+        $this->assertSame($A_SYNC, Backbone::getDefaultSync($ModelA), "The A model does have a default sync function");
+        
+        $a = new $ModelA(array(), array('sync'=>$B_SYNC));
+        $this->assertSame($B_SYNC, $a->sync(), "If explicitly given a sync, use it.");
+        $col = new Backbone_Collection();
+        $col->add($a);
+        $this->assertSame($B_SYNC, $a->sync(), "If explicitly given a sync, use it, even if added to a collection");
+        
+        $a = new $ModelA();
+        $this->assertSame($A_SYNC, $a->sync(), "If not given a sync, fall back to the default");
+        $col = new Backbone_Collection(array(), array('sync'=>$B_SYNC));
+        $col->add($a);
+        $this->assertSame($B_SYNC, $a->sync(), "If collection has an explicit sync, use it.");
+        
+        $a = new $ModelA();
+        $col = new Backbone_Collection();
+        $col->add($a);
+        $this->assertSame($A_SYNC, $a->sync(), "If collection does not have a sync, and doesn't have a collection default, fall back to the model default.");
     }
 }
 

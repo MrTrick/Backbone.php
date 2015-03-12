@@ -44,6 +44,7 @@ class Test_Model extends Backbone_Model {
     }
     
     public static $staticMember = 'foo';
+    const TEST_CONSTANT = "TEST";
 }
 
 class Test_Collection extends Backbone_Collection {

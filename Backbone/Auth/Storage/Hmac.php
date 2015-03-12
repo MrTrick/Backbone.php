@@ -105,6 +105,11 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
      */
     protected $identity = null;
     
+    /**
+     * The logging object, if one is given
+     */
+    protected $log = null;
+    
     /*************************************************************************\
      * Construction/initialisation
     \*************************************************************************/
@@ -130,16 +135,16 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
         //If lifetime is given, set it.
         if (!empty($options['lifetime']))
             $this->lifetime = $options['lifetime'];
-        
+            
         //Set/check the auth_secret
         if (!empty($options['server_key']))
             $this->server_key = $options['server_key'];
         else if (empty($this->server_key))
             throw new InvalidArgumentException("Must specify an authentication secret");
             
-        //If logger is given, store a reference to it
-        if (!empty($options['logger'])) 
-            $this->logger = $options['logger'];
+        //If log is given, store a reference to it
+        if (!empty($options['log'])) 
+            $this->log = $options['log'];
     }
 
     /*************************************************************************\
@@ -159,7 +164,8 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
         return array(
         	'identity'=>$this->identity, 
         	'expiry'=>$this->expiry,
-            'client_key'=>$this->client_key
+            'client_key'=>$this->client_key,
+        	'created'=>$this->expiry - $this->lifetime
         );
     }
     
@@ -170,7 +176,7 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
      * @return string An error if one occurs, null if successful
      */
     public function validateSignature(array $params) {
-        foreach(array('identity','expiry','signature') as $required)
+        foreach(array('identity','expiry','signature', 'url') as $required)
             if (empty($params[$required]))
                 return "Missing '$required' parameter"; 
         $identity = $params['identity'];
@@ -178,18 +184,30 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
         //The signature is only valid from time of issue to expiry
         $expiry = (int)$params['expiry']; 
         if (time() > $expiry or time() < $expiry - $this->lifetime) 
-            return "Credentials expired";
+            return "Credentials expired. Time: ".time().", Expiry: ".$expiry;
         
         //Re-derive the client key from the identity/expiry and the server key
-        $client_key = hash_hmac('sha256', $identity.$expiry, $this->server_key);
+        $user_key = $this->_getUserKey($identity);
+        $client_key = hash_hmac('sha256', $expiry, $user_key);
         
-        //Check the signature has been signed with the valid client key        
+        //Does the given URL match the server's URL?
         $request = $this->request();
+        $url = $request->getScheme().'://'.$request->getHttpHost().$request->getRequestUri();
+        $url = str_replace('%27', "'", $url); //Unescape the apostrophe - not handled correctly by apache?
+        $sig_url = $params['url'];
+        
+        //Decode *any* html entities, to ensure that server config etc doesn't cause problems.
+        while($url != urldecode($url)) $url = urldecode($url);
+        while($sig_url != urldecode($sig_url)) $sig_url = urldecode($sig_url); 
+        
+        if ($url != $sig_url)
+        	return "URL does not match. URI: $url, Signature: $sig_url";
+        
+        //Check the signature has been signed with the valid client key
         $method = $request->getMethod();
-        $uri = $request->getScheme().'://'.$request->getHttpHost().$request->getRequestUri();
-        $computed_signature = hash_hmac('sha256', $method.$uri, $client_key);
+        $computed_signature = hash_hmac('sha256', $method.$params['url'], $client_key);
         if ($params['signature'] !== $computed_signature) {
-            if (!empty($this->logger)) $this->logger->log("Forged signature: ".json_encode(compact('identity','expiry','client_key','uri','computed_signature')));
+            $this->log && $this->log->warn("Forged signature: ".json_encode(compact('identity','expiry','client_key','url','computed_signature')));
             return "Forged signature";
         }
 
@@ -211,13 +229,13 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
         //If no header, the request is unsigned
         $auth = $this->request()->getHeader('Authorization');
         if (!$auth) {
-            $this->identity = false;
-            return;
+            return $this->identity = false;
         }
         
-        //Parse the header
-        if ( !preg_match('/^HMAC (.*)$/', $auth, $m) )
-            throw new Backbone_Exception_Unauthorized("Invalid Signature; Incorrect header format");    
+        //Parse the header - if invalidly formatted or another kind of Auth (eg Basic), treat as unsigned
+        if ( !preg_match('/^HMAC (.*)$/', $auth, $m) ) {
+            return $this->identity = false;
+        }
         parse_str($m[1], $params);
         
         //Check the signature
@@ -226,6 +244,10 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
             throw new Backbone_Exception_Unauthorized("Invalid Signature; $error");
             
         return $this->identity;
+    }
+    
+    protected function _getUserKey($identity) {
+        return hash_hmac('sha256', $identity, $this->server_key, true);
     }
     
     /*************************************************************************\
@@ -271,13 +293,15 @@ class Backbone_Auth_Storage_Hmac implements Zend_Auth_Storage_Interface {
         else 
             throw new Zend_Auth_Storage_Exception("Invalidly formatted identity");
         
+        $user_key = $this->_getUserKey($identity);
+        
         //Generate a time-limited key
         $expiry = time() + $this->lifetime;
 
         //Store the signature credentials in the object
         $this->expiry = $expiry;
         $this->identity = $identity;
-        $this->client_key = hash_hmac('sha256', $identity.$expiry, $this->server_key);
+        $this->client_key = hash_hmac('sha256', $expiry, $user_key);
     }
     
 	/**

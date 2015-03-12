@@ -37,11 +37,35 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     \*************************************************************************/
     
     /**
+     * What fields are returned by the LDAP query?
+     * If not set, returns all.
+     */
+    protected static $returned_attributes = array();
+    
+    /**
+     * What attributes can be filtered?
+     * If not set, accepts none.
+     */
+    protected static $filterable_attributes = array();
+    
+    /**
+     * Are there base-level filters that are applied to all searches?
+     * @var array of string or Zend_Ldap_Filter
+     */
+    protected static $base_filters = array();
+    
+    /**
+     * Specify a base dn or 'location' for these models
+     * @var string
+     */
+    protected static $baseDn = null;
+    
+    /**
      * What kinds of exceptions are sync errors?
      * @see Backbone_Sync_Abstract::caught 
      * @var array
      */
-    protected $caught = array('Zend_Ldap_Exception', 'Backbone_Exception_NotFound');
+    protected $caught = array('Zend_Ldap_Exception', 'Backbone_Exception_NotFound', 'Backbone_Exception_Forbidden');
     
     /**
      * The Zend_Ldap client object
@@ -91,37 +115,53 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     
     /**
      * Given a Backbone_Model; fetch its attributes from the backend.
+     * 
+     * Uses any filters defined in the class or the options, to enforce further restrictions.
+     * eg; Calling readModel($contract, array('params'=>array('owner'=>$person_id)))
+     *  - Fetches the contract.
+     *  - Only works if the contract has that owner.
+     * 
      * @see Backbone_Sync_Abstract::readModel
      * @param Backbone_Model $model
      * @param array $options Options, includes success/error callback
-     * @throws Zend_Db_Exception if an error occurs
+     * @throws Zend_Ldap_Exception if an error occurs
      * @return array|false Returns the arr on success, false on failure. 
      */
     public function readModel(Backbone_Model $model, array $options = array()) {
         $dn = $this->toDn($model, $options);
+        $filter = $this->getSearchFilter($model, $options);
         $client = $this->client();
-                
-        $entry = $client->getEntry($dn);
-        if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be read, not found");
         
-        return $this->convertEntryToAttributes($entry, $options);
+        try { $result = $client->search($filter, $dn, Zend_Ldap::SEARCH_SCOPE_BASE, static::$returned_attributes); }
+        catch (Zend_Ldap_Exception $e) { throw new Backbone_Exception_NotFound("Model could not be read, not found"); }
+        
+        if ($result->count() == 0) { throw new Backbone_Exception_NotFound("Model could not be read, not found"); }
+        else if ($result->count() > 1) { throw new UnexpectedValueException("Expected zero or one result, got ".$result->count()); }
+        
+        return $this->convertEntryToAttributes($result->getFirst(), $options);
     }
     
     /**
      * Given a Backbone_Collection; fetch its elements from the backend.
      * Options:
-     *  'params' => A map of 'key' => 'value' where filters 
+     *  'params' => A map of 'key' => 'value' attributes to filter on. If a 'filter' attribute is defined, added to 'filter'.  
+     *  'filter' => A filter (see getSearchFilter) for the LDAP search
      * @see Backbone_Sync_Abstract::readCollection
      * @param Backbone_Model_Collection $collection  
      * @param array $options
-     * @throws Zend_Db_Exception if an error occurs
+     * @throws Zend_Ldap_Exception if an error occurs
      * @return array|false Returns the array of models attributes, or false if an error occurs.
      */
     public function readCollection(Backbone_Collection $collection, array $options = array()) {
         $filter = $this->getSearchFilter($collection, $options);
+        $sort = $this->getSortFilter($collection, $options);
+        $sizelimit = $this->getSizeLimit($collection, $options);
         $client = $this->client();
-
-        $entries = $client->search($filter);
+        
+        //$time = microtime(true);
+        $entries = $client->search($filter, static::$baseDn, Zend_Ldap::SEARCH_SCOPE_SUB, static::$returned_attributes, $sort, null, $sizelimit);
+        //property_exists($this, 'log') && $this->log && $this->log->warn(sprintf("%s. Took: %0.3f seconds, %d results", $filter, (microtime(true)-$time), $entries->count()));
+        
         $data = array();
         foreach($entries as $entry) {
             //Convert the LDAP entry to its attributes, including the ID
@@ -139,7 +179,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
      * @see Backbone_Sync_Abstract::create
      * @param Backbone_Model $model
      * @param array $options
-     * @throws Zend_Db_Exception if an error occurs
+     * @throws Zend_Ldap_Exception if an error occurs
      * @return array|false Returns the latest attributes on success, false on failure.
      */
     public function create(Backbone_Model $model, array $options = array()) {
@@ -151,7 +191,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $client->add($dn, $entry);
         
         //Read it back
-        $entry = $client->getEntry($dn);
+        $entry = $client->getEntry($dn, static::$returned_attributes);
         if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be found after creating");
         
         return $this->convertEntryToAttributes($entry, $options);
@@ -163,7 +203,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
      * @see Backbone_Sync_Abstract::update
      * @param Backbone_Model $model
      * @param array $options
-     * @throws Zend_Db_Exception if an error occurs
+     * @throws Zend_Ldap_Exception if an error occurs
      * @return array|false Returns the latest attributes on success, false on failure. 
      */
     public function update(Backbone_Model $model, array $options = array()) {
@@ -175,7 +215,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $client->exists($dn) ? $client->update($dn, $entry) : $client->add($dn, $entry);
         
         //Read it back
-        $entry = $client->getEntry($dn);
+        $entry = $client->getEntry($dn, static::$returned_attributes);
         if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be found after updating");
         
         return $this->convertEntryToAttributes($entry, $options);
@@ -186,7 +226,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
      * @see Backbone_Sync_Abstract::delete
      * @param Backbone_Model $model
      * @param array $options
-     * @throws Zend_Db_Exception if an error occurs
+     * @throws Zend_Ldap_Exception if an error occurs
      * @return true|false Returns true on success, false on failure.
      */
     public function delete(Backbone_Model $model, array $options = array()) {
@@ -230,36 +270,208 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     }
     
     /**
-     * Given a collection to read, generate the table selector
-     * (to figure out which rows to read)
-     * The default implementation will select all rows by default, or allow a set of simple filters to be passed in $options['params']
+     * Given a collection or model to read, generate the ldap selector
+     * (to figure out which entries to search for)
+     * The default implementation will select (any row / all rows) by default.
      * 
-     * Override this function to permit more complex selectors
+     * If base_filters are defined, will use them.
+     * If an $options['filter'] is defined, will use it.
+     * If an $options['params']['filter'] is defined, will use it.
+     * If filterable_attributes are defined in $options['params'], will use them.
+     * Any defined filters are combined into a logical AND filter.
      * 
-     * @param Backbone_Collection $collection
+     * Override this function to permit custom selectors
+     * 
+     * @param Backbone_Model|Backbone_Collection $m_or_c
      * @param array $options
      * @throws InvalidArgumentException
+     * @return Zend_Ldap_Filter|string
      */
-    public function getSearchFilter(Backbone_Collection $collection, array $options) {
-        //If no parameters given, select all objects
-        if (empty($options['params'])) { 
-            return '(objectClass=*)';
-        
-        //Otherwise, filter on the parameters given.
-        } else {
-            if (!is_array($options['params'])) throw new InvalidArgumentException('Expected $options[\'params\'] to be an array'.gettype($options['params']).'given.');
-            
-            $filters = array();
-            foreach($options['params'] as $attr=>$val) {
-                if ($val instanceof Zend_Ldap_Filter_Abstract) 
-                    $filters[] = $val;
-                else
-                    $filters[] = Zend_Ldap_Filter::equals($attr, $val);
-            }
-            return new Zend_Ldap_Filter_And($filters);
-        }
+    public function getSearchFilter($m_or_c, array $options) {
+        //Filter on the parameters given, and the 'filter' attribute if given...
+       	$params = empty($options['params']) ? array() : $options['params'];
+       	if (!is_array($params)) throw new InvalidArgumentException('Expected $options[\'params\'] to be an array, '.gettype($options['params']).'given.');
+       	 
+		//Are there base filters?
+		$filters = $this->getBaseFilters($m_or_c, $options);
+		foreach($filters as &$filter) if (!is_string($filter)) {
+			$filter = $this->parseFilter($filter);
+		}
+      	
+       	//Are there any filters? Parse and incorporate them
+      	if (!empty($options['filter'])) {
+      		$f = $this->parseFilter($options['filter']);
+      		if ($f) $filters[] = $f;
+      	}
+       	if (!empty($params['filter'])) {
+       		$f = $this->parseFilter($params['filter']);
+       		if ($f) $filters[] = $f;
+       		unset($params['filter']);
+       	}
+       	
+		//Push the parameters into the filter too
+		foreach ($this->getFilterableParameters($params, $options) as $attr=>$value) {
+			$f = $this->makeFilter($attr, $value);
+			if ($f) $filters[] = $f;
+		}	
+
+		//Were there any filters at all?
+		if (!$filters) return Zend_Ldap_Filter::any('objectClass');
+		//If only one filter, use it directly. 
+		if (count($filters)==1) $filter = $filters[0];
+		//If multiple filters, combine them.
+		else $filter = '(&'.implode($filters).')';
+		
+		//If the filter is functionally empty, (eg. "(|(&(|(|))))" contains no letters or numbers), ignore it
+		if (preg_match('/^[^a-zA-Z0-9]*$/', (string)$filter)) 
+			return Zend_Ldap_Filter::any('objectClass');
+
+		return $filter;
     }
-        
+    
+    /**
+     * Fetch the filters that should apply to every request.
+     * Will be ANDed with other filters by getSearchFilter  
+     * 
+     * @param Backbone_Model|Backbone_Collection $m_or_c
+     * @param array $options
+     * @return array 
+     */
+    protected function getBaseFilters($m_or_c, array $options) {
+    	return static::$base_filters;
+    }
+    
+	/**
+	 * How should search results be sorted?
+	 * (Typically an attribute name, optionally prefixed by '-' for reverse) 
+	 * @param Backbone_Collection $collection
+	 * @param array $options
+	 * @return string|null
+	 */   
+    protected function getSortFilter(Backbone_Collection $collection, array $options) {
+    	if (!empty($options['sort'])) return $options['sort'];
+    	elseif (!empty($options['params']) && !empty($options['params']['sort'])) return $options['params']['sort']; 
+    	else return null;
+    }
+    
+    /**
+     * How many results should be returned?
+     * @param Backbone_Collection $collection
+     * @param array $options
+     * @return int|null
+     */
+    protected function getSizeLimit(Backbone_Collection $collection, array $options) {
+    	if (!empty($options['limit'])) return $options['limit'];
+    	if (!empty($options['params']) && !empty($options['params']['limit'])) return $options['params']['limit'];
+    	else return null;
+    }
+    
+    /**
+     * Try to parse the given filter into a ldap-compatible form.
+     * Filters can be:
+     *   
+	 * A Zend_Ldap_Filter object (To be set/added internally) 
+     *
+     * A simple test:
+	 *
+	 *   {attr:'Foo', value:'Bar'}
+	 *
+	 * A logical combination of tests:
+	 *
+	 *   {'&': [filter, filter, ...]}
+	 *   {'|': [filter, filter, ...]}
+	 *   {'!': [filter, filter, ...]}
+	 *
+	 * A short-cut combination: (cannot contain nested filters or repeated attributes)
+	 *
+	 *   {'&': {Foo:'Bar', Bar:'Baz', Baz:'Foo'} }
+	 *   {'|': {Foo:'Bar', Bar:'Baz', Baz:'Foo'} }
+	 *   //Is equivalent to;
+	 *   {'&': [{attr:'Foo', value:'Bar'}, {attr:'Bar', value:'Baz'}, {attr:'Baz', value:'Foo'}]}
+	 *   {'|': [{attr:'Foo', value:'Bar'}, {attr:'Bar', value:'Baz'}, {attr:'Baz', value:'Foo'}]}
+	 *   
+     * @param array|Zend_Ldap_Filter_Abstract $filter
+     * @return string
+     * @throws InvalidArgumentException
+     */
+    protected function parseFilter($filter) {
+    	//Short-circuit - just passthrough actual filters.
+    	if ($filter instanceof Zend_Ldap_Filter_Abstract) 
+    		return $filter;
+    	
+    	//Simple filter?
+    	elseif (is_array($filter) and count($filter) == 2 and array_key_exists('attr', $filter) and array_key_exists('value', $filter))
+    		return $this->makeFilter($filter['attr'], $filter['value']);
+
+    	elseif (is_array($filter) and count($filter) == 3 and array_key_exists('attr', $filter) and array_key_exists('value', $filter) and array_key_exists('type', $filter))
+    	return $this->makeFilter($filter['attr'], $filter['value'], $filter['type']);
+    	 
+    	//Combination filter?
+    	elseif (is_array($filter) and count($filter) == 1 and is_array( $inner=reset($filter) ) ) {
+    		//Check the operator type
+    		$operator = key($filter);
+    		if ($operator == '&') { $pre='(&'; $suf=')'; }
+    		elseif ($operator == '|') { $pre='(|'; $suf=')'; }
+    		elseif ($operator == '!')  { $pre='(!(|'; $suf='))'; }
+    		else throw new InvalidArgumentException("Invalid filter operator '".$operator."'");
+
+    		$filters = array();
+
+    		//Proper form? Recurse.
+    		if (is_array(reset($inner)) and is_int(key($inner))) foreach($inner as $value) {
+    			$f = $this->parseFilter($value);
+    			if ($f) $filters[] = $f;
+    		}
+    		//Shortcut form? Make a simple filter from each key-value pair.
+    		else foreach($inner as $attr=>$value) {
+    			$f = $this->makeFilter($attr, $value);
+    			if ($f) $filters[] = $f;
+    		}
+    		
+    		//Ignore empty filters
+    		if (!$filters) return null;
+			//Combine and return for multiple filters
+			if (count($filters)>1) return $pre.implode($filters).$suf;
+			//Just return for single filters, with negation for !
+			else return ($operator=='!') ? '(!'.$filters[0].')' : $filters[0];
+    	}  
+    	
+    	//Or something else?
+    	else throw new InvalidArgumentException("Invalid filter syntax; ".json_encode($filter));
+    }
+    
+	/**
+	 * Make an LDAP filter out of the given attribute and value
+	 * If values is an array, filter matches any
+	 * 
+	 *   {Foo: ['Bar', 'Baz']}
+	 *   //Is equivalent to;
+	 *   {'|': [{attr:'Foo', value:'Bar'}, {attr:'Foo', value:'Baz'}]}
+	 *   
+	 * NOTE: Doesn't check whether assoc or real array
+	 * 
+	 * @param string $attr
+	 * @param mixed $value
+	 * @return string
+	 * @throws InvalidArgumentException If the attribute is not listed as being filterable
+	 */			
+	public function makeFilter($attr, $value, $type=null) {
+		if (!in_array($attr, static::$filterable_attributes)) throw new InvalidArgumentException("Cannot filter on attribute $attr");
+		if (!is_array($value)) $value = array($value);
+		if (!count($value)) return null;
+		
+		$filters = array();
+		foreach($value as $v) {
+			if (!is_scalar($v)) throw new InvalidArgumentException("Cannot filter $attr, invalid value");
+			//If the value is prefixed or suffixed with '*' wildcards, keep them. 
+			if (substr($v,0,1) === '*') { $pre='*'; $v=substr($v,1); } else $pre='';
+			if (substr($v,-1) === '*') { $suf='*'; $v=substr($v,0,-1); } else $suf='';
+			
+			$filters[] = '('.$attr . '=' . $pre . Zend_Ldap_Filter::escapeValue($v) . $suf .')';
+		}
+		return (count($filters)==1)?$filters[0]:'(|'.implode($filters).')';
+	}
+    
     /**
      * Convert a Backbone_Model instance into an LDAP entry
      * The default implementation simply copies every model attribute except id,
@@ -293,5 +505,18 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         }
         
         return $attributes;
+    }
+    
+    /**
+     * Given a map of parameters, return only the ones that can be filtered.
+     * Useful for ensuring that **external** parameters meet the whitelist.
+     * NOTE! DO NOT USE FOR INTERNAL PARAMETERS THAT SHOULD ALWAYS BE FILTERED, USE $options['filter'] INSTEAD  
+     * 
+     * @param array $params
+     * @param array $options
+     * @return array
+     */
+    protected function getFilterableParameters(array $params, array $options) {
+    	return static::$filterable_attributes ? array_intersect_key($params, array_flip(static::$filterable_attributes)) : array();
     }
 } 

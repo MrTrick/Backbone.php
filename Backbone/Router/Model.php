@@ -58,11 +58,6 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
         return $this->collection;
     }
     
-    /**
-     * If set, a whitelist of the query parameters that can be passed to the model/collection as options
-     */
-    protected $valid_user_params = null;
-    
     /*************************************************************************\
      * Initialize
     \*************************************************************************/
@@ -79,13 +74,11 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
         if (is_string($collection)) { $collection = new $collection(null, $options); }
         $this->collection($collection);
         
-        //Override valid_user_params if given
-        if (!empty($options['valid_user_params'])) $this->valid_user_params = $options['valid_user_params'];
-        
         parent::__construct($options);
         
         //Add a special route to match '_js' - after construction, so not overriden by other routes 
         $this->route('_js', 'exportClasses');
+        $this->route('_.js', 'exportClassesAsModule');
     }
 
     /*************************************************************************\
@@ -93,54 +86,35 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
     \*************************************************************************/
     
     /**
-     * Get the options for this request; they will be passed through to the 
-     * model/collection and the subsequent sync methods
-     * 
-     * You can restrict which options are able to be set from the request by
-     * overriding/setting 'valid_user_params'.
-     * 
-     * @param array $options
-     * @return array
-     */
-    protected function getOptions(array $options) {
-        //Fetch user parameters, filtering if specified
-        $params = $this->request()->getParams();
-        if ($this->valid_user_params !== null) 
-            $params = array_intersect_key($params, array_flip($this->valid_user_params));
-            
-        //Combine with the server options. 
-        //(Already-set params overwrite query parameters)   
-        return array_merge_recursive(array('params'=>$params), $options);
-    }
-    
-    /**
-     * Get the data for this request; usually this will be sent in the request body,
-     * but it can be overriden by the 'data' query parameter.
-     * JSON format is required
-     * 
-     * @return array
-     * @throws InvalidArgumentException If the request data is invalid
-     */
-    protected function getData() {
-        $request = $this->request();
-        $raw = $request->has('data') ? $request->get('data') : $this->request()->getRawBody();
-        if (!$raw) throw new InvalidArgumentException("No data received", 400);  
-        $data = json_decode($raw, true);
-        if (!$data) throw new InvalidArgumentException("Incorrect data format sent - should be JSON", 400);
-
-        return $data;
-    }
-    
-    /**
      * Instantiate a blank model, linked to the collection
      * @return Backbone_Model
      */
-    protected function buildModel() {
+    protected function buildModel($id=null) {
         $collection = $this->collection();
         $class = $collection->model();
-        $model = new $class(); /* @var $model Backbone_Model */
+        $attrs = $id ? array( $collection->idAttribute() => $id ) : array();
+        $model = new $class($attrs); /* @var $model Backbone_Model */
         $model->collection($collection);
         return $model;
+    }
+    
+    /**
+     * Update a model with new values
+     * @return Backbone_Model|false False if set is unsuccessful
+     */
+    protected function modifyModel($model, $values, $options) {
+        return $model->set($values, $options);
+    }
+    
+    /**
+     * Send a model or collection back to the client
+     * @param Backbone_Collection|Backbone_Model $m_or_c
+     * @param array $options
+     */
+    protected function output($m_or_c, array $options) {
+        $this->response()
+          ->setHeader('Content-Type', 'application/json')
+          ->setBody( $m_or_c->exportJSON($options) );        
     }
 
     /*************************************************************************\
@@ -152,26 +126,9 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @see Backbone_Router_Rest::index()
      */
     public function index(array $options=array()) {
-        $options = $this->getOptions($options); 
+        $options['params'] = $this->getParams($options);
         $this->collection()->fetch($options);
-        
-        $this->response()
-            ->setHeader('Content-Type', 'application/json')
-            ->setBody( $this->collection()->export($options) );
-    }
-    
-    /**
-     * Create the given model
-     * @see Backbone_Router_Rest::create()
-     */
-    public function create(array $options=array()) {
-        $model = $this->buildModel();
-        $options = $this->getOptions($options); 
-        $model->save($this->getData(), $options);
-        
-        $this->response()
-            ->setHeader('Content-Type', 'application/json')
-            ->setBody( $model->export($options) );
+        $this->output($this->collection(), $options);
     }
     
     /**
@@ -180,14 +137,28 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @param string id
      */
     public function read($id, array $options=array()) {
-        $model = $this->buildModel();
-        if (!$model->id($id)) throw new InvalidArgumentException("Invalid id", 404);
-        $options = $this->getOptions($options); 
-        $model->fetch($options);
+        $options['params'] = $this->getParams($options);
+        $modelClass = $this->collection()->model();
+        $model = $modelClass::factory($id, $options);
         
-        $this->response()
-            ->setHeader('Content-Type', 'application/json')
-            ->setBody( $model->export($options) );
+        $this->output($model, $options);
+    }
+        
+    /**
+     * Create the given model
+     * @see Backbone_Router_Rest::create()
+     */
+    public function create(array $options=array()) {
+        $model = $this->buildModel();
+        $options['params'] = $this->getParams($options);
+
+        //Try and set the new attributes
+        if (!$this->modifyModel($model, (array)$this->getData(), $options)) return;
+
+        //If successful, save and return the created model
+        if (!$model->save(null, $options)) return;
+
+        $this->output($model, $options);
     }
 
     /**
@@ -195,16 +166,19 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @see Backbone_Router_Rest::update()
      */
     public function update($id, array $options=array()) {
-        $model = $this->buildModel();
-        if (!$model->id($id)) throw new InvalidArgumentException("Invalid id", 404);
-        $options = $this->getOptions($options);
+        $model = $this->buildModel($id);
+        $options['params'] = $this->getParams($options);
 
-        $model->fetch($options);
-        $model->save($this->getData(), $options);
+        //Fetch the existing model
+        if (!$model->fetch($options)) return;
         
-        $this->response()
-            ->setHeader('Content-Type', 'application/json')
-            ->setBody( $model->export($options) );
+        //Try and set the new attributes
+        if (!$this->modifyModel($model, (array)$this->getData(), $options)) return;
+        
+        //If successful, save and return the updated model
+        if (!$model->save(null, $options)) return;
+        
+        $this->output($model, $options);
     }
     
     /**
@@ -212,11 +186,14 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @see Backbone_Router_Rest::delete()
      */
     public function delete($id, array $options=array()) {
-        $model = $this->buildModel();
-        if (!$model->id($id)) throw new InvalidArgumentException("Invalid id", 400);
-        $options = $this->getOptions($options); 
+        $model = $this->buildModel($id);
+        $options['params'] = $this->getParams($options);
+
+        //Fetch the existing model
+        if (!$model->fetch($options)) return;
         
-        $model->destroy($options);
+        $model->destroy(array_merge($options, array('wait'=>true)));
+
         //No need to return anything - just a success HTTP code
     }
 
@@ -240,5 +217,51 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
         $this->response()
             ->setHeader('Content-Type', 'text/javascript')
             ->setBody( implode("\n\n", $exports) );
+    } 
+
+    /**
+     * Export the model and collection javascript definition
+     * (Needs the client to have loaded Backbone.js already)
+     * Definitions are wrapped in a Universal Module Definition (UMD).
+     * If requirejs is loaded, it will use requirejs's define(...) syntax;
+     * otherwise, it will register the module in the global namespace.
+     * Options:
+     *      exportModuleName: The name of the module to export into.
+     *      exportModuleDeps: An array of requirejs module dependencies
+     *                  (such as 'backbone', 'underscore', or 'jquery')
+     */
+    public function exportClassesAsModule(array $options=array()) {
+        $moduleName = $options['exportModuleName'];
+        $moduleDeps = json_encode(is_array($options['exportModuleDeps']) ? $options['exportModuleDeps'] : array($options['exportModuleDeps']));
+        $collection = $this->collection();
+        $modelClass = $collection->model();
+        
+        $exports = array(
+            "//Exported definitions for ".get_class($this)
+        );
+        if ($modelClass != 'Backbone_Model')
+            $exports[] = $modelClass::exportClass();
+        if (get_class($collection) != 'Backbone_Collection') 
+            $exports[] = $collection->exportClass();
+        
+        $definitions = implode("\n\n", $exports);
+        
+        $out = <<<EOF
+(function(root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define($moduleDeps, factory);
+    }
+    else {
+        root.$moduleName = factory(root.$moduleName);
+    }
+}(this, function($moduleName) {
+$definitions
+
+return $moduleName;
+}));
+EOF;
+        $this->response()
+            ->setHeader('Content-Type', 'text/javascript')
+            ->setBody( $out );
     }    
 }

@@ -120,6 +120,71 @@ class Backbone_Router extends Backbone_Events
         if (func_num_args()) $this->response = $response;
         return $this->response ? $this->response : Backbone::getCurrentResponse();
     }
+
+    /**
+     * If set, a whitelist of the query parameters that can be passed to the model/collection as options
+     * @var array
+     */
+    protected $valid_client_params = null;
+    
+    /*************************************************************************\
+     * Request Helpers
+    \*************************************************************************/
+
+    /**
+     * Get the parameters for this request; they will be passed through to the
+     * model/collection and the subsequent sync methods
+     *
+     * Router parameters come from two places;
+     *  - Set in $options['params']. This can be done either directly by the application, or by a parent router.
+     *  - Set in the request by the client.
+     *
+     * You can restrict which parameters the client may set by defining the $valid_client_params class attribute.
+     * $options-defined parameters will *override* any client parameters.
+     *
+     * e.g. If the client requests "/asset/33?person=44";
+     *  - The request parameters will contain 'person'=>44
+     *  - If $valid_client_params is empty or contains 'person', the function returns array('person'=>44)
+     *  - If $valid_client_params is not empty and doesn't contain 'person', the function returns array()
+     *
+     * e.g. If the client requests "/person/44/asset/33"; (and the 'asset' router is a sub-route of the 'person' router)
+     *  - The 'person' parameter will already be set in $options['params'], the function returns array('person'=>44)
+     *
+     * e.g. If the client requests "/person/44/asset/33?person=11&otherparam=foo" (and $valid_client_params is empty)
+     *  - As 'person' will be set by $options['params'], the request parameters cannot override it.
+     *  - The function will return array('person'=>44, 'otherparam'=>'foo')
+     *
+     * @param array $options The invocation options, usually as passed to the route handler
+     * @return array A map of parameters
+     */
+    public function getParams(array $options) {
+    	//Fetch user parameters, filtering if specified
+    	$client_params = $this->request()->getParams();
+    	if ($this->valid_client_params !== null)
+    		$client_params = array_intersect_key($client_params, array_flip($this->valid_client_params));
+    
+    	//Combine with server parameters
+    	return empty($options['params']) ? $client_params : array_merge($client_params, $options['params']);
+    }
+    
+    /**
+     * Get the data for this request; usually this will be sent in the request body,
+     * but it can be overriden by the 'data' query parameter.
+     * JSON format is required
+     *
+     * @return array
+     * @throws InvalidArgumentException If the request data is invalid
+     */
+    public function getData() {
+    	$request = $this->request();
+    	$raw = $request->has('data') ? $request->get('data') : $this->request()->getRawBody();
+    	if (!$raw) throw new InvalidArgumentException("No data received", 400);
+    	$data = json_decode($raw);
+    	if ($data === null and json_last_error() != JSON_ERROR_NONE)
+    		throw new InvalidArgumentException("Incorrect data format sent - should be JSON", 400);
+    
+    	return $data;
+    }    
     
     /*************************************************************************\
      * Construction/initialisation
@@ -146,6 +211,9 @@ class Backbone_Router extends Backbone_Events
         
         //If response is given, set it.
         if (!empty($options['response'])) $this->response($options['response']);
+
+        //If valid_client_params is given, set it.
+        if (!empty($options['valid_client_params'])) $this->valid_client_params = $options['valid_client_params'];
         
         //Initialize
         $this->initialize($options);
@@ -258,7 +326,7 @@ class Backbone_Router extends Backbone_Events
      * @param array $options
      */
     public function url(array $options=array()) {
-        $request = $this->request();        
+        $request = $this->request();
         $url = $request->getPathInfo();
         if (!empty($options['root'])) {
             $root = rtrim($options['root'], '/');
@@ -325,7 +393,7 @@ class Backbone_Router extends Backbone_Events
                     
                     //Add the params to any existing ones in the options (eg from a router outside of this one) by name
                     $named_params = !empty($options['params']) ? $options['params'] : array();
-                    foreach($m as $k=>$v) if (!is_numeric($k)) $named_params[$k] = rawurldecode($v); 
+                    foreach($m as $k=>$v) if (!is_numeric($k) && $k!=='url') $named_params[$k] = rawurldecode($v); 
                     $options['params'] = $named_params;
                     
                     //Forward the request to the nested router

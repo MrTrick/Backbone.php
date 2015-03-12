@@ -29,7 +29,7 @@
  * Abstract Sync class to provide some simple structure 
  * @author Patrick Barnes
  */
-abstract class Backbone_Sync_Abstract implements Backbone_Sync_Interface {
+abstract class Backbone_Sync_Abstract extends Backbone_Events implements Backbone_Sync_Interface {
     /*************************************************************************\
      * Attributes and Accessors
     \*************************************************************************/
@@ -52,7 +52,7 @@ abstract class Backbone_Sync_Abstract implements Backbone_Sync_Interface {
      *   
      * @var array Exception names, eg array('Zend_Db_Exception') or array('Zend_Db_Exception', 'MyWeirdException')
      */
-    protected $caught = null;
+    protected $caught = array('Backbone_Exception_NotFound', 'Backbone_Exception_Forbidden');
     
     /**
      * The exception types caught by sync
@@ -151,6 +151,12 @@ abstract class Backbone_Sync_Abstract implements Backbone_Sync_Interface {
      *  - Delegates the actual synchronisation task to one of the 'create', 'readModel', 'readCollection', 'update', 'delete' abstract methods
      *  - Catches any exceptions in the caught list.
      *  - Triggers the success/error callback, passing the appropriate data
+     *  
+     * The implementation supports 'defer'ing the success responses (event triggering, success callback):
+     *  - The caller passes a callback in $options['defer'].
+     *  - Sync does not run the success responses immediately.
+     *  - Invokes the defer callback, passing a closure to run the success responses at a later time.
+     * The $options['async'] option will need to be set as well as $options['defer']. 
      * 
      * @param string $method One of; 'create', 'update', 'delete', 'read'
      * @param Backbone_Model|Backbone_Collection $m_c The model to synchronize, typically $this.
@@ -159,6 +165,18 @@ abstract class Backbone_Sync_Abstract implements Backbone_Sync_Interface {
      * @see Backbone_Sync_Interface::__invoke()
      */
     public function __invoke($method, $m_c, array $options=array()) {
+        //Check to see if we're deferring success callbacks
+        if (!empty($options['defer'])) {
+            $defer = $options['defer'];
+            if (!is_callable($defer)) throw new InvalidArgumentException("Invalid 'defer' option, must be callable");
+            
+            //Stop async/defer options from propagating to other handlers
+            unset($options['async']);
+            unset($options['defer']);
+        } else {
+            $defer = false;
+        }
+        
         //Check the passed object is valid 
         $is_m = is_a($m_c, static::$model);
         $is_c = is_a($m_c, static::$collection);
@@ -170,28 +188,43 @@ abstract class Backbone_Sync_Abstract implements Backbone_Sync_Interface {
         $_method = ($method=='read')?($is_m?'readModel':'readCollection'):$method;
         if (!in_array($_method, $methods))
             throw new InvalidArgumentException("Unsupported method: ".$method);
+        
+        try {
+            //Check the access control - allowed to sync?
+            if (!$this->allowed($method, $m_c, $options))
+                throw new Backbone_Exception_Forbidden("Forbidden, not permitted to '$method' this object");
+        
+            //Are there any handlers that need to be run before sync? 
+            $this->trigger("before_$_method", $this, $m_c, $options);
 
-        //Check the access control - allowed to sync?
-        if (!$this->allowed($method, $m_c, $options))
-            throw new Backbone_Exception_Forbidden("Forbidden, not permitted to '$method' this object");
-        
-        //Run sync operation
-        $data = false; $error = false;
-        try { 
-            $data = $this->$_method($m_c, $options); 
-        } catch (Exception $error) {}
-        
-        //If an exception was thrown, should it be caught?
-        if ($error and !$this->catches($error, $method, $m_c, $options)) throw $error;
-        
-        //Was the operation successful? Notify any callbacks
-        if ($data !== false) {
-            if (!empty($options['success'])) call_user_func($options['success'], $m_c, $data, $options);
-        } else {
-            if (!empty($options['error'])) call_user_func($options['error'], $m_c, $error, $options);            
+            //Run sync operation
+            $data = $this->$_method($m_c, $options);
+            
+            //Notify any handlers/callbacks of the successful operation
+            if (!$defer) {
+                $this->trigger($_method, $this, $m_c, $data, $options);
+                if (!empty($options['success'])) call_user_func($options['success'], $m_c, $data, $options);
+            }
+            //Unless defer is set; then pass a closure back for the caller to trigger later, along with the data
+            else {
+                $self = $this;
+                call_user_func($defer, function() use ($_method, $self, $m_c, $data, $options) {
+                    $self->trigger($_method, $self, $m_c, $data, $options);
+                    if (!empty($options['success'])) call_user_func($options['success'], $m_c, $data, $options);
+                }, $data);
+            }
+            
+            return $data;
+        } catch (Exception $error) {
+            //An exception was thrown - should it be caught?
+            if (!$this->catches($error, $method, $m_c, $options)) throw $error;
+            
+            //Notify any handlers/callbacks of the error
+            $this->trigger('error', $this, $m_c, $error, $options);
+            if (!empty($options['error'])) call_user_func($options['error'], $m_c, $error, $options);
+                        
+            return false;
         }
-        
-        return $data;
     }
     
     /**

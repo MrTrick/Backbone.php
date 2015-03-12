@@ -142,8 +142,8 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
             if (is_array($comparator)) list($class, $method) = $comparator;
             if (is_string($comparator) and strpos($comparator, '::')) list($class, $method) = explode("::", $comparator);
             if (is_object($comparator) and method_exists($comparator, '__invoke')) { $class = $comparator; $method = '__invoke'; }
-            else $reflector = new ReflectionFunction($comparator);
             if ($class) $reflector = new ReflectionMethod($class, $method);
+            else $reflector = new ReflectionFunction($comparator);
             $params = $reflector->getNumberOfParameters();
             
             if ($params == 2) $this->comparator_type = 'compare';
@@ -596,6 +596,23 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
     }
     
     /**
+     * Return the first model with matching attributes. Useful for simple cases of find().
+     * If no attributes are specified, return false.
+     * If no model is found, returns false.
+     *  
+     * @param array $attrs
+     * @return Backbone_Model|false
+     */
+    public function findWhere(array $attrs) {
+        if (!$attrs) return false;
+        foreach($this as $model) {
+            foreach($attrs as $attr=>$value) if ($model->get($attr) != $value) continue 2;
+            return $model;
+        }
+        return false;
+    }
+    
+    /**
      * Pluck and return an attribute from each model in the collection.
      * Models missing that attribute will still be included, with value null.
      * 
@@ -634,9 +651,10 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
         $was_error = false;
         $collection = $this;
         
-        if (!isset($options['parse'])) $options['parse'] = true;
-        $options['success'] = function($_collection=null, $response=null, $_options=null) use ($collection, &$options, $on_success, &$was_success) {
-            $models = $options['parse'] ? $collection->parse($response) : $response;
+        $_options = $options;
+        if (!isset($_options['parse'])) $_options['parse'] = true;
+        $_options['success'] = function($_collection=null, $response=null, $_options=null) use ($collection, &$options, $on_success, &$was_success) {
+            $models = $_options['parse'] ? $collection->parse($response) : $response;
             
             //Set the collection
             if (!empty($options['add'])) 
@@ -649,14 +667,14 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
             $collection->trigger('sync', $collection, $response, $options);
             $was_success = true; 
         };
-        $options['error'] = function($_collection=null, $response=null, $_options=null) use ($collection, &$options, $on_error, &$was_error) {
+        $_options['error'] = function($_collection=null, $response=null, $_options=null) use ($collection, &$options, $on_error, &$was_error) {
             //Signal that the operation was unsuccessful
             if ($on_error) call_user_func($on_error, $collection, $response, $options); 
             else $collection->trigger('error', $collection, $response, $options);
             $was_error = true;
         };
         
-        call_user_func($sync, 'read', $this, $options);
+        call_user_func($sync, 'read', $this, $_options);
         if (!empty($options['async'])) return $this;
         elseif ($was_success != $was_error) return $was_success ? $this : false;
         else throw new LogicException("Sync function did not invoke callbacks correctly");
@@ -740,7 +758,17 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
      * @return array of Backbone_Model objects, keyed by id
      */
     public function filter($callback) { return array_filter($this->models, $callback); }
-
+    
+    /**
+     * Return the first model where the callback returns true.
+     * @param callable $callback
+     * @return Backbone_Model|false
+     */
+    public function find($callback) {
+        foreach($this as $model) if (call_user_func($callback, $model)) return $model;
+        return false;
+    }
+    
     /**
      * Sort the collection by the return values of the iterator
      * @param callable $iterator
@@ -755,6 +783,12 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
         foreach($sorted as $i=>$j) $models[] = $this->models[$i];
         $this->models = $models; 
     }
+    
+    /**
+     * Iterate over every model in the collection
+     * @param callable $iterator
+     */
+    public function each($iterator) { foreach($this->models as $model) $iterator($model); }
     
     /**
      * Produces a new array of values by wrapping each model in list through an iterator.
@@ -815,7 +849,49 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
         while((bool)($m = next($this->models))) if ( ($_min=$iterator($m)) < $min) { $min_model = $m; $min = $_min; }
         return $min_model;
     }
+    
+    /**
+     * Return whether the collection contains the given model
+     * @param Backbone_Model|string $id
+     * @return boolean
+     */
+    public function contains($id) {
+        if ($id === null) return null;
+        if ($id instanceof Backbone_Model) $id = $id->id();
+        return isset($this->_byId[$id]);
+    }
         
+    /**
+     * Produce an associative map of value => group, where each model is placed
+     * in a group according to the value returned by the iterator.
+     * Alternatively, an attribute name can be passed to group by that attribute. 
+     * 
+     * eg; to group models into type;
+     * @example $collection->groupBy(function($model) { return $model->get('type'); });
+     * @example $collection->groupBy('type');
+     * @param callable|string $iterator_or_attr The iterator function, or an attribute name.
+     * @return array Map of 'value'=>array($model, )
+     */
+    public function groupBy($iterator_or_attr) {
+        $out = array();
+        if (is_callable($iterator_or_attr)) foreach($this->models as $model) $out[$iterator_or_attr($model)][]=$model; 
+        else foreach($this->models as $model) $out[$model->get($iterator_or_attr)][]=$model;
+        return $out;
+    }
+    
+    /**
+     * Like groupBy, but when the iterator's return values are assumed to be unique.
+     * If the same value is returned twice, the later model will take precedence.
+     * @param callable|string $iterator_or_attr The iterator function, or an attribute name.
+     * @return array Map of 'value'=>$model
+     */
+    public function indexBy($iterator_or_attr) {
+        $out = array();
+        if (is_callable($iterator_or_attr)) foreach($this->models as $model) $out[$iterator_or_attr($model)]=$model;
+        else foreach($this->models as $model) $out[$model->get($iterator_or_attr)]=$model;
+        return $out;
+    }
+    
     //TODO: Implement more as needed.
     
     /*************************************************************************\
@@ -947,8 +1023,18 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
      * @see Backbone_Router_Model::index
      * @return string A JSON-encoded array of exported Model objects.
      */
-    public function export(array $options = array()) {
+    public function exportJSON(array $options = array()) {
         return $this->toJSON();
+    }
+
+    /**
+     * Export the collection as an array of model arrays for processing and client output.
+     * 
+     * @param array $options
+     * @return multitype:
+     */
+    public function export(array $options = array()) {
+        return $this->map(function($m) use ($options) { return $m->export($options); });
     }
     
     /**
@@ -965,14 +1051,17 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
         $class = $_class::getExportedClassName();
         $parent = $_parent::getExportedClassName();
         
-        $reflector = new ReflectionClass($class);
+        $reflector = new ReflectionClass($_class);
         $class_values = $reflector->getDefaultProperties();
         
         $members = array();
-        $members[] = "model: ".$class_values['model'];
+        $members[] = "model: ".$class_values['model']::getExportedClassName();
         foreach(static::$exported_fields as $field) $members[] = "$field: ".(isset($class_values[$field])? json_encode($class_values[$field]) : 'null');
         foreach(static::$exported_functions as $name=>$func) $members[] = "$name: $func";
+        
+        // If class isn't being defined as part of a module, declare it with var.
+        if (strpos($class, '.') === false) $class = "var $class";
 
-        return "var $class = $parent.extend({\n\t".implode(",\n\t",$members)."\n})";
+        return "$class = $parent.extend({\n  ".implode(",\n  ",$members)."\n});";
     }
 }

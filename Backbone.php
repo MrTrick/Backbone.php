@@ -38,7 +38,7 @@ class Backbone {
      */
     const VERSION = '0.9.2';
     
-    protected static $idCounter = 0;
+    protected static $idCounter = 1;
     /**
      * Generate a unique id 
      * (Unique only for the duration of execution)
@@ -55,15 +55,17 @@ class Backbone {
     protected static $default_sync = array();
     
     /**
-     * Set the default sync function|object
+     * Set the default sync function|object(s)
      * This function will be called by Models and Collections that do not have a sync function|object set
      * The default sync can be cleared by setting it to null.
      *
-     * Different default sync functions can be set per model class by passing a map of modelclass => sync.
+     * Different default sync functions can be set per model class by passing a map of modelclassname => sync pairs.
      * (If a single function given, modelclass is 'Backbone_Model')
      * 
      * The sync object may be passed as the class name, and it will be instantiated the first time it is 
      * retrieved.
+     * 
+     * NOTE: The first matching sync will be returned, so if classes overlap ensure that specific sync functions are given first. 
      * 
      * @param callable|Backbone_Sync_Interface|array $sync
      */
@@ -78,6 +80,7 @@ class Backbone {
                 throw new InvalidArgumentException('Cannot set $sync - invalid');
         }
         
+        //Fill the default_sync array with a set of class->sync objects
         static::$default_sync = $sync;
     }
     
@@ -94,10 +97,12 @@ class Backbone {
     public static function getDefaultSync($model = null) {
         if (!$model) $model = 'Backbone_Model';
         
+        if (is_string($model) and !empty($model) and !empty(static::$default_sync[$model])) return static::$default_sync[$model];
+                
         foreach(static::$default_sync as $class=>$sync) {
             if (is_a($model, $class, true)) {
                 //If storing the class name, construct and cache the object on first use
-                if (is_string($sync) and !is_callable) static::$default_sync[$class] = new $sync();
+                if (is_string($sync) and !is_callable($sync)) static::$default_sync[$class] = new $sync();
                 
                 return $sync;
             }

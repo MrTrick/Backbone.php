@@ -505,12 +505,59 @@ class Test_Router_TestCase extends PHPUnit_Framework_TestCase {
         $inner->route('foo', 'foo', function($_options) use (&$options) { $options = $_options; });
         $outer = new Backbone_Router(array('routes'=>array('inside/*url'=>array('name'=>'inside','callback'=>$inner))));
         $this->assertTrue( $outer(array('request'=>'/inside/foo', 'user'=>'Phil')) );
-        $this->assertEquals( array('request'=>'foo', 'params'=>array('url'=>'foo'), 'user'=>'Phil'), $options, 'Matched parameters passed to inner router' );
+        $this->assertEquals( array('request'=>'foo', 'params'=>array(), 'user'=>'Phil'), $options, 'url param is stripped from router params' );
         
         $outer->route('other/:other_id/inside/*url', 'filtered', $inner);
         $this->assertTrue( $outer(array('request'=>'/other/32/inside/foo', 'user'=>'Phil')) );
-        $this->assertEquals( array('request'=>'foo', 'params'=>array('other_id'=>'32', 'url'=>'foo'), 'user'=>'Phil'), $options, 'Previous parameters passed to inner router' );
+        $this->assertEquals( array('request'=>'foo', 'params'=>array('other_id'=>'32'), 'user'=>'Phil'), $options, 'Previous parameters passed to inner router' );
     }
+    
+    /**
+     * Backbone_Router: client and options parameters are handled properly
+     */
+    public function testBRParams() {
+    	$params = null;
+    	
+    	$router = new Backbone_Router();
+    	$router->route('book/:id', 'read', function($id, $options) use (&$params, $router) { 
+    		$params = $router->getParams($options);
+    	});
+    	
+    	$request = new Zend_Controller_Request_Http('http://example.com/book/123');
+    	$request->setParam('page', 5);
+    	Backbone::setCurrentRequest($request);
+    	
+    	$this->assertTrue( $router() );
+    	$this->assertEquals( array('page'=>5), $params, "Client parameter passed into route" );
+    	
+    	$this->assertTrue( $router(array('params'=>array('page'=>2, 'foo'=>'bar'))) );
+    	$this->assertEquals( array('page'=>2, 'foo'=>'bar'), $params, "Options parameters override request parameters");
+    }
+
+    /**
+     * Backbone_Router: whitelisting of user parameters
+     */
+    public function testBRParamsWhiteList() {
+    	$params = null;
+    	 
+    	$router = new Backbone_Router( array('valid_client_params'=>array('page','sort') ));
+    	$router->route('book/:id', 'read', function($id, $options) use (&$params, $router) {
+    		$params = $router->getParams($options);
+    	});
+    		 
+    	$request = new Zend_Controller_Request_Http('http://example.com/book/123');
+    	$request->setParams(array('page'=>5, 'foo'=>'bar'));
+    	Backbone::setCurrentRequest($request);
+    		 
+    	$this->assertTrue( $router() );
+    	$this->assertEquals( array('page'=>5), $params, "Only the page parameter accepted" );
+    	
+    	$this->assertTrue( $router(array('params'=>array('foo'=>'Froggy'))) );
+    	$this->assertEquals( array('page'=>5, 'foo'=>'Froggy'), $params, "valid_client_params does not affect \$options['param']" );
+    	
+    	$this->assertTrue( $router(array('params'=>array('foo'=>'Froggy', 'page'=>7))) );
+    	$this->assertEquals( array('page'=>7, 'foo'=>'Froggy'), $params, "and options parameters still override request parameters" );
+    }    
     
     //-------------------------------------------------------------------------------------------------------
     

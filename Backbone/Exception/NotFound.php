@@ -32,8 +32,8 @@
  * @author Patrick Barnes
  */
 class Backbone_Exception_NotFound extends Backbone_Exception {
-    public function __construct($message = "", $code = null, $previous = null) {
+    public function __construct($message = "", $code = null, Exception $previous = null, $body = null) {
         if (!$code) $code = '404';
-        parent::__construct($message, $code, $previous);
-    }
+        parent::__construct($message, $code, $previous, $body);
+    }    
 }

@@ -589,6 +589,13 @@ class Test_Collection_TestCase extends PHPUnit_Framework_TestCase {
         $this->assertEquals(3, $col->max(function($model) { return $model->id; })->id());
         $this->assertEquals(0, $col->min(function($model) { return $model->id; })->id());
         $this->assertEquals(array(4,0), array_values(array_map( function($o) { return $o->id()*2; }, $col->filter(function($o){return $o->id() % 2 == 0;}) )));
+        
+        $this->assertEquals(false, $col->find(function($model) { return $model->id == 4; }));
+        $this->assertSame($this->a, $col->find(function($model) { return $model->label == 'a'; }));
+        $this->assertSame($this->b, $col->find(function($model) { return $model->id == 1 || $model->id == 2; }), "Return first matching model");
+        $this->assertSame($this->a, $col->findWhere(array('id'=>3)));
+        $this->assertSame($this->a, $col->findWhere(array('id'=>3, 'label'=>'a')));
+        $this->assertEquals(false, $col->findWhere(array('id'=>3, 'label'=>'b')));
     }
     
     /**
@@ -1024,14 +1031,14 @@ class Test_Collection_TestCase extends PHPUnit_Framework_TestCase {
      */
     public function testBCExportedObject() {
         $collection = new Backbone_Collection(array(array('x'=>true)));
-        $this->assertEquals('[{"x":true}]', $collection->export());
+        $this->assertEquals('[{"x":true}]', $collection->exportJSON());
         
         $class = Test_Collection::buildClass(array());
         $collection = new $class(array($this->a, $this->b, $this->c, $this->d));
         $this->assertEquals('[{"id":3,"label":"a"},{"id":2,"label":"b"},{"id":1,"label":"c"},{"id":0,"label":"d"}]', (string)$collection);
         $this->assertEquals(
         	'[{"id":3,"label":"a"},{"id":2,"label":"b"},{"id":1,"label":"c"},{"id":0,"label":"d"}]', 
-            $collection->export()
+            $collection->exportJSON()
         );
     }
     

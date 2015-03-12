@@ -183,13 +183,15 @@ class Backbone_Model extends Backbone_Events
      * @param Backbone_Sync_Interface|callable $gateway
      * @return Backbone_Sync_Interface The effective sync fuction
      */
-    public function sync($sync=null) { 
+    public function sync($sync=null) {
         if (func_num_args()) {
             if ($sync and !(is_callable($sync) || is_a($sync, 'Backbone_Sync_Interface'))) throw new InvalidArgumentException('Cannot set $sync - invalid');            
-            $this->sync = $sync;  
+            $this->sync = $sync;
         }
         
-        return $this->sync ? $this->sync : ($this->collection ? $this->collection->sync() : Backbone::getDefaultSync(get_class($this)));
+        return $this->sync ? $this->sync 
+             : ( ($this->collection && $this->collection->sync()) ? $this->collection->sync() 
+             : Backbone::getDefaultSync(get_class($this)));
     }
     
     /**
@@ -216,6 +218,45 @@ class Backbone_Model extends Backbone_Events
     public function urlRoot($urlRoot = null) {
         if (func_num_args()) $this->_urlRoot = $urlRoot;
         return $this->_urlRoot ? $this->_urlRoot : static::$urlRoot;
+    }
+    
+    /**
+     * If set, the model url.
+     * @see Backbone_Model::url()
+     * @var string
+     */
+    protected $_url = null;
+
+    /**
+     * What is the server's URL for this model?
+     *
+     * If a URL is set on the model, return it. Otherwise, conform
+     * to the Backbone.js implementation;
+     *  - if part of a collection, is [collection.url()]/id
+     *  - if not part of a collection, is [urlRoot]/id
+     *  - if isNew, omits the /id part.
+     *
+     * Override (and provide a javascript equivalent method) if a different convention is required.
+     *
+     * Get: $model->url();
+     * Set: $model->url($url);
+     * @param url string
+     * @return string
+     * @throws LogicException if url is not set and not part of a collection and rootUrl is not defined.
+     */
+    public function url($url = null) {
+        if (func_num_args()) $this->_url = $url;
+    
+        if ($this->_url) return $this->_url;
+        else {
+            $base = $this->collection ? $this->collection->url() : $this->urlRoot();
+            if (!$base and !is_string($base)) throw new LogicException("Model not part of a collection and urlRoot not defined, can't calculate model url!");
+    
+            if ($this->isNew())
+                return $base;
+            else
+                return rtrim($base, '/').'/'.rawurlencode($this->id); //almost the same as javascript's encodeUriComponent, except for . ! ~ * ' ( )
+        }
     }
    
     /*************************************************************************\
@@ -258,6 +299,10 @@ class Backbone_Model extends Backbone_Events
         //Set collection or gateway, if given
         if (!empty($options['collection'])) $this->collection($options['collection']);
         if (!empty($options['sync'])) $this->sync($options['sync']);
+        
+        //Set url or urlRoot, if given
+        if (!empty($options['url'])) $this->url($options['url']);
+        if (!empty($options['urlRoot'])) $this->urlRoot($options['urlRoot']);
         
         //Parse and set 
         if (!empty($options['parse'])) 
@@ -344,6 +389,23 @@ class Backbone_Model extends Backbone_Events
         if (isset($this->_escapedAttributes[$attr])) return $this->_escapedAttributes[$attr];
         $val = $this->get($attr);
         return $this->_escapedAttributes[$attr] = htmlspecialchars( $val ? $val : '' );
+    }
+    
+    /**
+     * Get a number of attributes
+     * Can be called as pick('attr', 'attr', 'attr')
+     * or as pick( array('attr','attr','attr')  ) 
+     * 
+     * @param string|array $attr....
+     * @return array Associative array of attributes
+     */
+    public function pick() {
+        $attrs = array();
+        foreach(func_get_args() as $attr) {
+            if (is_string($attr)) $attrs[$attr] = $this->get($attr);
+            else foreach($attr as $a) $attrs[$a] = $this->get($a); 
+        };
+        return $attrs;
     }
 
     /**
@@ -501,31 +563,18 @@ class Backbone_Model extends Backbone_Events
      * changes.
      * 
      */
-    public function isValid() 
+    public function isValid(array $options = array()) 
     {
-        return !$this->validate($this->attributes);
-    }
-    
-    /**
-     * What is the server's URL for this model?
-     * Conforms to the Backbone.js implementation; 
-     *  - if part of a collection, is [collection.url()]/id
-     *  - if not part of a collection, is [urlRoot]/id
-     *  - if isNew, omits the /id part.
-     *  
-     * Override (and provide a javascript equivalent method) if a different convention is required.
-     * 
-     * @return string
-     * @throws LogicException if not part of a collection and rootUrl is not defined.
-     */
-    public function url() {
-        $base = $this->collection ? $this->collection->url() : $this->urlRoot();
-        if (!$base and !is_string($base)) throw new LogicException("Model not part of a collection and urlRoot not defined, can't calculate model url!");
+        $errors = $this->validate($this->attributes, $options);
         
-        if ($this->isNew()) 
-            return $base;
-        else 
-            return rtrim($base, '/').'/'.rawurlencode($this->id); //almost the same as javascript's encodeUriComponent, except for . ! ~ * ' ( )
+        //If no errors, valid!
+        if (!$errors) return true;
+        
+        //If an error callback has been registered, pass to it the errors 
+        if (!empty($options['error']))
+            call_user_func($options['error'], $this, $errors, $options);
+            
+        return false;
     }
     
     /**
@@ -697,24 +746,26 @@ class Backbone_Model extends Backbone_Events
         $was_error = false;
         $model = $this;
         
-        $options['success'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_success, &$was_success) {
+        $_options = $options;
+        $_options['success'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_success, &$was_success, &$was_error) {
             //Set the attributes
             $serverAttrs = $model->parse($response);
-            if (!$model->set($serverAttrs, $options)) return; //if can't set, calls error instead 
+            if (!$model->set($serverAttrs, array_merge($options, array('on_sync'=>true)))) { $was_error=true; return; } //if can't set, calls error            
             
             //Signal that the operation was successful
             if ($on_success) call_user_func($on_success, $model, $response, $options);
+            $model->trigger('fetch', $model, $response, $options);
             $model->trigger('sync', $model, $response, $options);
             $was_success = true; 
         };
-        $options['error'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_error, &$was_error) {
+        $_options['error'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_error, &$was_error) {
             //Signal that the operation was unsuccessful
             if ($on_error) call_user_func($on_error, $model, $response, $options); 
             else $model->trigger('error', $model, $response, $options);
             $was_error = true;
         };
         
-        call_user_func($sync, 'read', $this, $options);
+        call_user_func($sync, 'read', $this, $_options);
         if (!empty($options['async'])) return $this;
         elseif ($was_success != $was_error) return $was_success ? $this : false;
         else throw new LogicException("Sync function did not invoke callbacks correctly");
@@ -746,6 +797,10 @@ class Backbone_Model extends Backbone_Events
      */
     public function save($key=null, $value=null, $options=array()) 
     {
+        //Idiot check - it's save(null, options) not save(options)
+        if (func_num_args() == 1 && is_array($key) && (isset($key['success']) || isset($key['error'])))
+            throw new BadFunctionCallException("Bad call - suspect save was called incorrectly");
+        
         //Handle both ('key', $value) and (array('key'=>$value)) calls.
         if (is_scalar($key)) {
             $attrs = array($key=>$value); 
@@ -782,25 +837,31 @@ class Backbone_Model extends Backbone_Events
         $was_success = false;
         $was_error = false;
         
-        $options['success'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_success, $waiting, $attrs, &$was_success) {
+        $_options = $options;
+        $_options['success'] = function($_model=null, $response=null, $__options=null) use ($model, &$options, &$_options, $on_success, $waiting, $attrs, &$was_success) {
+            //Stop async/defer options from propagating
+            unset($options['async']); 
+            unset($options['defer']);
+            
             //Saved successfully, set any new attributes
             $serverAttrs = $model->parse($response);
             if ($waiting and $attrs) $serverAttrs = array_merge($attrs, $serverAttrs);
-            if (!$model->set($serverAttrs, $options)) return; //if can't set, calls error 
+            if (!$model->set($serverAttrs, array_merge($_options, array('on_sync'=>true)))) return; //if can't set, calls error 
             
             //Signal that the operation was successful
             if ($on_success) call_user_func($on_success, $model, $response, $options);
+            $model->trigger('save', $model, $response, $options);            
             $model->trigger('sync', $model, $response, $options);
             $was_success = true; 
         };
-        $options['error'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_error, &$was_error) {
+        $_options['error'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_error, &$was_error) {
             //Signal that the operation was unsuccessful
             if ($on_error) call_user_func($on_error, $model, $response, $options); 
             else $model->trigger('error', $model, $response, $options);
             $was_error = true;
         };
         
-        call_user_func($sync, $this->isNew() ? 'create' : 'update', $this, $options);
+        call_user_func($sync, $this->isNew() ? 'create' : 'update', $this, $_options);
         
         //Revert the changes, if we are waiting for a successful response first
         if ($waiting and !$was_success) {
@@ -808,8 +869,8 @@ class Backbone_Model extends Backbone_Events
             $this->set($current, $silentOptions);
         }
         
-        if (!empty($options['async'])) return $this;
-        elseif ($was_success != $was_error) return $was_success ? $this : false;
+        if ($was_success != $was_error) return $was_success ? $this : false;
+        else if (!empty($options['async'])) return $this;
         else throw new LogicException("Sync function did not invoke callbacks correctly");
     }
     
@@ -819,7 +880,7 @@ class Backbone_Model extends Backbone_Events
      * 
      * Options:
      * - 'sync' : Override the model's sync function for this call 
-     * - 'wait' : Wait for success before removing it from the collection.
+     * - 'wait' : Wait for success before removing it from the collection or triggering the destroy event.
      * - 'success' : Callback on successfully destroying the model: function($model, $response, $options)
      * - 'error' : Callback on failing to destroy the model: function($model, $response, $options). If omitted, instead calls trigger('error', $model, $response, $options);
      * - 'async' : (PHP Only) Don't require the sync function to call 'success' or 'error' before returning.
@@ -840,7 +901,8 @@ class Backbone_Model extends Backbone_Events
         $was_success = false;
         $was_error = false;
         
-        $success = $options['success'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_success, $waiting, &$was_success) {
+        $_options = $options;
+        $success = $_options['success'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_success, $waiting, &$was_success) {
             //If not done yet, remove from the collection.
             if ($waiting || $model->isNew()) $model->trigger('destroy', $model, $model->collection(), $options);
             
@@ -849,7 +911,7 @@ class Backbone_Model extends Backbone_Events
             if (!$model->isNew()) $model->trigger('sync', $model, $response, $options);
             $was_success = true; 
         };
-        $options['error'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_error, &$was_error) {
+        $_options['error'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_error, &$was_error) {
             //Signal that the operation was unsuccessful
             if ($on_error) call_user_func($on_error, $model, $response, $options); 
             else $model->trigger('error', $model, $response, $options);
@@ -865,7 +927,7 @@ class Backbone_Model extends Backbone_Events
         //Optimistically remove from the collection.
         if (!$waiting) $this->trigger('destroy', $this, $this->collection(), $options);
         
-        call_user_func($sync, 'delete', $this, $options);
+        call_user_func($sync, 'delete', $this, $_options);
         if (!empty($options['async'])) return $this;
         elseif ($was_success != $was_error) return $was_success ? $this : false;
         else throw new LogicException("Sync function did not invoke callbacks correctly");
@@ -882,14 +944,25 @@ class Backbone_Model extends Backbone_Events
     protected static $exported_classname = null;
         
     /**
-     * Javascript attributes that belong in the class definition.
+     * Javascript methods that belong in the object definition.
+     * 
+     * For example; if a function 'foo' is exported, then
+     * in javascript; "var model = new My.Model(); model.foo();" 
      * 
      * @var array Map of 'name' => 'function(args) { stuff }'
      */
     protected static $exported_functions = array();
     
     /**
-     * Static attributes that need to be exported to the class definition
+     * Javascript static methods that belong in the class definition.
+     * 
+     * For exmaple; if a function 'foo' is exported, then
+     * in javascript; My.Model.foo()
+     */
+    protected static $exported_static_functions = array();
+    
+    /**
+     * Static class attributes that need to be exported to the class definition
      * @var array List of attribute names
      */
     protected static $exported_fields = array('idAttribute', 'defaults', 'urlRoot');
@@ -929,8 +1002,20 @@ class Backbone_Model extends Backbone_Events
      * @see Backbone_Router_Model::read
      * @return string A JSON-encoded object of model attributes for export
      */
-    public function export(array $options = array()) {
+    public function exportJSON(array $options = array()) {
         return $this->toJSON();
+    }
+    
+    /**
+     * Export the model attributes as an associative array for processing and client output.
+     * 
+     * The default implementation simply returns the current attributes.
+     * 
+     * @param $options array
+     * @return array An associative array of attributes
+     */
+    public function export(array $options=array()) {
+        return $this->attributes;
     }
     
     /**
@@ -946,15 +1031,26 @@ class Backbone_Model extends Backbone_Events
         
         $class = $_class::getExportedClassName();
         $parent = $_parent::getExportedClassName();
-
-        $members = array();
         
-        $reflector = new ReflectionClass($class);
+        $members = array();
+        $static_members = array();
+        
+        $reflector = new ReflectionClass($_class);
         $class_values = $reflector->getDefaultProperties();
         
         foreach(static::$exported_fields as $field) $members[] = "$field: ".(isset($class_values[$field])? json_encode($class_values[$field]) : 'null');
         foreach(static::$exported_functions as $name=>$func) $members[] = "$name: $func";
-
-        return "var $class = $parent.extend({\n\t".implode(",\n\t",$members)."\n})";
+        foreach(static::$exported_static_functions as $name=>$func) $static_members[] = "$class.$name = $func;";
+        
+        //Export any constants defined by the class
+        foreach($reflector->getConstants() as $name=>$field) { 
+            if (empty(static::$exported_static_functions[$name])) 
+                $static_members[] = "$class.$name = ".json_encode($field).";";
+        }
+        
+        // If class isn't being defined as part of a module, declare it with var.
+        if (strpos($class, '.') === false) $class = "var $class";
+        
+        return "$class = $parent.extend({\n  ".implode(",\n  ",$members)."\n});\n".implode("\n", $static_members);
     }
 }

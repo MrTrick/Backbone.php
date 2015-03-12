@@ -40,7 +40,7 @@ interface Backbone_Sync_Interface {
      * Backbone_Sync is expected to:
      *  - Take parameters function($method, $model|$collection, $options)
      *  - Call $options['success']($model|$collection, $response, $options) if the sync was successful.
-     *  - Call $options['error']($model|$collection, $response, $options) if the sync was successful.
+     *  - Call $options['error']($model|$collection, $response, $options) if the sync was not successful.
      *  - Return true|false On success/failure
      * 
      * @param string $method One of; 'create', 'update', 'delete', 'read'
