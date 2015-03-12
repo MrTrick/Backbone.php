@@ -1062,6 +1062,10 @@ class Backbone_Collection extends Backbone_Events implements Countable, Iterator
         // If class isn't being defined as part of a module, declare it with var.
         if (strpos($class, '.') === false) $class = "var $class";
 
+<<<<<<< HEAD
         return "$class = $parent.extend({\n  ".implode(",\n  ",$members)."\n});";
+=======
+        return "$class = $parent.extend({\n\t".implode(",\n\t",$members)."\n})";
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
     }
 }

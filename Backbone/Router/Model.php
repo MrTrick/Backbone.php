@@ -102,8 +102,20 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * Update a model with new values
      * @return Backbone_Model|false False if set is unsuccessful
      */
+<<<<<<< HEAD
     protected function modifyModel($model, $values, $options) {
         return $model->set($values, $options);
+=======
+    protected function getData() {
+        $request = $this->request();
+        $raw = $request->has('data') ? $request->get('data') : $this->request()->getRawBody();
+        if (!$raw) throw new InvalidArgumentException("No data received", 400);  
+        $data = json_decode($raw, true);
+        if ($data === null and json_last_error() != JSON_ERROR_NONE) 
+            throw new InvalidArgumentException("Incorrect data format sent - should be JSON", 400);
+
+        return $data;
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
     }
     
     /**
@@ -126,7 +138,11 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @see Backbone_Router_Rest::index()
      */
     public function index(array $options=array()) {
+<<<<<<< HEAD
         $options['params'] = $this->getParams($options);
+=======
+        $options = $this->getOptions($options);
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
         $this->collection()->fetch($options);
         $this->output($this->collection(), $options);
     }
@@ -137,6 +153,7 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
      * @param string id
      */
     public function read($id, array $options=array()) {
+<<<<<<< HEAD
         $options['params'] = $this->getParams($options);
         $modelClass = $this->collection()->model();
         $model = $modelClass::factory($id, $options);
@@ -159,6 +176,14 @@ class Backbone_Router_Model extends Backbone_Router_Rest {
         if (!$model->save(null, $options)) return;
 
         $this->output($model, $options);
+=======
+        $options = $this->getOptions($options);
+        $modelClass = $this->collection()->model();
+        $model = $modelClass::factory($id, $options);
+        $this->response()
+            ->setHeader('Content-Type', 'application/json')
+            ->setBody( $model->export($options) );
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
     }
 
     /**

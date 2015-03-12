@@ -12,7 +12,7 @@ try {
     echo "Error connecting to database: ".$ex->getMessage(); exit;
 }
 
-$storage = new Backbone_Auth_Storage_Hmac(array('server_key'=>'AE230r983uaF#$J@A3rua', 'lifetime'=>60));
+$storage = new Backbone_Auth_Storage_Hmac(array('server_key'=>'AAAAAAAAAAAAAAAAAAAAAAAAAA', 'lifetime'=>60));
 Zend_Auth::getInstance()->setStorage($storage);
 
 $writer = new Zend_Log_Writer_Firebug();

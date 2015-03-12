@@ -188,10 +188,14 @@ class Backbone_Model extends Backbone_Events
             if ($sync and !(is_callable($sync) || is_a($sync, 'Backbone_Sync_Interface'))) throw new InvalidArgumentException('Cannot set $sync - invalid');            
             $this->sync = $sync;
         }
+<<<<<<< HEAD
         
         return $this->sync ? $this->sync 
              : ( ($this->collection && $this->collection->sync()) ? $this->collection->sync() 
              : Backbone::getDefaultSync(get_class($this)));
+=======
+        return $this->sync ? $this->sync : ($this->collection ? $this->collection->sync() : Backbone::getDefaultSync(get_class($this)));
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
     }
     
     /**
@@ -569,6 +573,32 @@ class Backbone_Model extends Backbone_Events
         
         //If no errors, valid!
         if (!$errors) return true;
+<<<<<<< HEAD
+=======
+        
+        //If an error callback has been registered, pass to it the errors 
+        if (!empty($options['error']))
+            call_user_func($options['error'], $this, $errors, $options);
+            
+        return false;
+    }
+    
+    /**
+     * What is the server's URL for this model?
+     * Conforms to the Backbone.js implementation; 
+     *  - if part of a collection, is [collection.url()]/id
+     *  - if not part of a collection, is [urlRoot]/id
+     *  - if isNew, omits the /id part.
+     *  
+     * Override (and provide a javascript equivalent method) if a different convention is required.
+     * 
+     * @return string
+     * @throws LogicException if not part of a collection and rootUrl is not defined.
+     */
+    public function url() {
+        $base = $this->collection ? $this->collection->url() : $this->urlRoot();
+        if (!$base and !is_string($base)) throw new LogicException("Model not part of a collection and urlRoot not defined, can't calculate model url!");
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
         
         //If an error callback has been registered, pass to it the errors 
         if (!empty($options['error']))
@@ -750,7 +780,11 @@ class Backbone_Model extends Backbone_Events
         $_options['success'] = function($_model=null, $response=null, $_options=null) use ($model, &$options, $on_success, &$was_success, &$was_error) {
             //Set the attributes
             $serverAttrs = $model->parse($response);
+<<<<<<< HEAD
             if (!$model->set($serverAttrs, array_merge($options, array('on_sync'=>true)))) { $was_error=true; return; } //if can't set, calls error            
+=======
+            if (!$model->set($serverAttrs, array_merge($options, array('on_sync'=>true)))) return; //if can't set, calls error            
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
             
             //Signal that the operation was successful
             if ($on_success) call_user_func($on_success, $model, $response, $options);
@@ -846,7 +880,11 @@ class Backbone_Model extends Backbone_Events
             //Saved successfully, set any new attributes
             $serverAttrs = $model->parse($response);
             if ($waiting and $attrs) $serverAttrs = array_merge($attrs, $serverAttrs);
+<<<<<<< HEAD
             if (!$model->set($serverAttrs, array_merge($_options, array('on_sync'=>true)))) return; //if can't set, calls error 
+=======
+            if (!$model->set($serverAttrs, array_merge($options, array('on_sync'=>true)))) return; //if can't set, calls error 
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
             
             //Signal that the operation was successful
             if ($on_success) call_user_func($on_success, $model, $response, $options);
@@ -1042,6 +1080,7 @@ class Backbone_Model extends Backbone_Events
         foreach(static::$exported_functions as $name=>$func) $members[] = "$name: $func";
         foreach(static::$exported_static_functions as $name=>$func) $static_members[] = "$class.$name = $func;";
         
+<<<<<<< HEAD
         //Export any constants defined by the class
         foreach($reflector->getConstants() as $name=>$field) { 
             if (empty(static::$exported_static_functions[$name])) 
@@ -1052,5 +1091,11 @@ class Backbone_Model extends Backbone_Events
         if (strpos($class, '.') === false) $class = "var $class";
         
         return "$class = $parent.extend({\n  ".implode(",\n  ",$members)."\n});\n".implode("\n", $static_members);
+=======
+        // If class isn't being defined as part of a module, declare it with var.
+        if (strpos($class, '.') === false) $class = "var $class";
+        
+        return "$class = $parent.extend({\n\t".implode(",\n\t",$members)."\n});\n".implode("\n", $static_members);
+>>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
     }
 }

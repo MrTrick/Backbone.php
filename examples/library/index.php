@@ -13,7 +13,7 @@ try {
 }
 
 class Library_AuthorSync extends Backbone_Sync_DB_Table { protected $table = 'authors'; }
-class Library_AuthorModel extends Backbone_Model { protected $idAttribute = 'author'; }
+class Library_AuthorModel extends Backbone_Model { protected $idAttribute = 'author'; protected static $urlRoot = 'authors/'; }
 class Library_AuthorCollection extends Backbone_Collection { 
     protected $model = 'Library_AuthorModel'; 
     protected $sync = 'Library_AuthorSync';
