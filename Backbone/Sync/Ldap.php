@@ -38,7 +38,6 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     
     /**
      * What fields are returned by the LDAP query?
-<<<<<<< HEAD
      * If not set, returns all.
      */
     protected static $returned_attributes = array();
@@ -60,10 +59,6 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
      * @var string
      */
     protected static $baseDn = null;
-=======
-     */
-    protected static $search_attributes = array();
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
     
     /**
      * What kinds of exceptions are sync errors?
@@ -136,12 +131,6 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $dn = $this->toDn($model, $options);
         $filter = $this->getSearchFilter($model, $options);
         $client = $this->client();
-<<<<<<< HEAD
-=======
-
-        $entry = $client->getEntry($dn, static::$search_attributes);
-        if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be read, not found");
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
         
         try { $result = $client->search($filter, $dn, Zend_Ldap::SEARCH_SCOPE_BASE, static::$returned_attributes); }
         catch (Zend_Ldap_Exception $e) { throw new Backbone_Exception_NotFound("Model could not be read, not found"); }
@@ -155,13 +144,8 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     /**
      * Given a Backbone_Collection; fetch its elements from the backend.
      * Options:
-<<<<<<< HEAD
      *  'params' => A map of 'key' => 'value' attributes to filter on. If a 'filter' attribute is defined, added to 'filter'.  
      *  'filter' => A filter (see getSearchFilter) for the LDAP search
-=======
-     *  'params' => A map of 'key' => 'value' where filters 
-     *  'filter_mode' => '&' or '|' - how the filter should combine the params
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
      * @see Backbone_Sync_Abstract::readCollection
      * @param Backbone_Model_Collection $collection  
      * @param array $options
@@ -173,17 +157,11 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $sort = $this->getSortFilter($collection, $options);
         $sizelimit = $this->getSizeLimit($collection, $options);
         $client = $this->client();
-<<<<<<< HEAD
         
         //$time = microtime(true);
         $entries = $client->search($filter, static::$baseDn, Zend_Ldap::SEARCH_SCOPE_SUB, static::$returned_attributes, $sort, null, $sizelimit);
         //property_exists($this, 'log') && $this->log && $this->log->warn(sprintf("%s. Took: %0.3f seconds, %d results", $filter, (microtime(true)-$time), $entries->count()));
         
-=======
-        error_log(print_r($options['params'], true));
-
-        $entries = $client->search($filter, null, Zend_Ldap::SEARCH_SCOPE_SUB, static::$search_attributes);
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
         $data = array();
         foreach($entries as $entry) {
             //Convert the LDAP entry to its attributes, including the ID
@@ -213,11 +191,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $client->add($dn, $entry);
         
         //Read it back
-<<<<<<< HEAD
         $entry = $client->getEntry($dn, static::$returned_attributes);
-=======
-        $entry = $client->getEntry($dn, static::$search_attributes);
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
         if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be found after creating");
         
         return $this->convertEntryToAttributes($entry, $options);
@@ -241,11 +215,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
         $client->exists($dn) ? $client->update($dn, $entry) : $client->add($dn, $entry);
         
         //Read it back
-<<<<<<< HEAD
         $entry = $client->getEntry($dn, static::$returned_attributes);
-=======
-        $entry = $client->getEntry($dn, static::$search_attributes);
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
         if ($entry==null) throw new Backbone_Exception_NotFound("Model could not be found after updating");
         
         return $this->convertEntryToAttributes($entry, $options);
@@ -300,17 +270,9 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     }
     
     /**
-<<<<<<< HEAD
      * Given a collection or model to read, generate the ldap selector
      * (to figure out which entries to search for)
      * The default implementation will select (any row / all rows) by default.
-=======
-     * Given a collection to read, generate the ldap selector
-     * (to figure out which entries to search for)
-     * The default implementation will select all rows by default, or allow a set of simple filters to be passed in $options['params']
-     * If params are passed in, the way they are combined can be altered from the default (&(k1=p1)(k2=p3)...) to (|(k1=p1)(k2=p2)...)
-     * by passing a filter mode in $options['filter_mode']. 
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
      * 
      * If base_filters are defined, will use them.
      * If an $options['filter'] is defined, will use it.
@@ -431,9 +393,7 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
      * @param array|Zend_Ldap_Filter_Abstract $filter
      * @return string
      * @throws InvalidArgumentException
-     * @returns Zend_Ldap_Filter
      */
-<<<<<<< HEAD
     protected function parseFilter($filter) {
     	//Short-circuit - just passthrough actual filters.
     	if ($filter instanceof Zend_Ldap_Filter_Abstract) 
@@ -478,31 +438,6 @@ class Backbone_Sync_Ldap extends Backbone_Sync_Abstract {
     	
     	//Or something else?
     	else throw new InvalidArgumentException("Invalid filter syntax; ".json_encode($filter));
-=======
-    public function getSearchFilter(Backbone_Collection $collection, array $options) {
-        //If no parameters given, select all objects
-        if (empty($options['params'])) { 
-            return Zend_Ldap_Filter::any('objectClass');
-        
-        //Otherwise, filter on the parameters given.
-        } else {
-            if (!is_array($options['params'])) throw new InvalidArgumentException('Expected $options[\'params\'] to be an array'.gettype($options['params']).'given.');
-            
-            $filters = array();
-            foreach($options['params'] as $attr=>$val) {
-                if ($val instanceof Zend_Ldap_Filter_Abstract) 
-                    $filters[] = $val;
-                elseif (is_scalar($val))
-                    $filters[] = Zend_Ldap_Filter::equals($attr, $val);
-                elseif (is_array($val))
-                    $filters[] = new Zend_Ldap_Filter_Or(array_map(function($el) use ($attr) { return Zend_Ldap_Filter::equals($attr, $el); }, $val));
-            }
-            if (!empty($options['filter_mode']) && $options['filter_mode'] == Zend_Ldap_Filter_Logical::TYPE_OR)
-                return new Zend_Ldap_Filter_Or($filters);
-            else
-                return new Zend_Ldap_Filter_And($filters);
-        }
->>>>>>> 857c8d5996fdee227c4d22994ba4e543bd7d4d40
     }
     
 	/**
