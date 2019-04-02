@@ -1,7 +1,7 @@
 Backbone.php
 ============
 
-A high-performance API server implementation inspired heavily by Backbone.js.
+A high-performance API server framework inspired heavily by Backbone.js.
 Used in production for complex internal apps.
 
 Implements a similar design philosophy to Backbone.js:
