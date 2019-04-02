@@ -1,9 +1,21 @@
 Backbone.php
 ============
 
-A PHP implementation of Backbone.js
+A high-performance API server implementation inspired heavily by Backbone.js.
+Used in production for complex internal apps.
 
-Aims for 100% compatibility with the latest version of Backbone.js
-This project is in Alpha status.
+Implements a similar design philosophy to Backbone.js:
+
+ - Models and Collections
+ - Modular 'Sync' backend connectors
+ - Configuration through dependency injection
+ - Event subscription
+ - Cascading changes
+
+And adds further features:
+
+ - Chainable; Routers chain and provide context to further invocations.
+ - Testable; DI makes isolation of any code simple.
+ - Cross-Language Export; PHP Models and Collections export to Backbone.js class definitions.
 
 
